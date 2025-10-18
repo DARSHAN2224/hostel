@@ -59,6 +59,18 @@ const swaggerDefinition = {
       description: 'Student management endpoints',
     },
     {
+      name: 'HOD',
+      description: 'Head of Department operations and management',
+    },
+    {
+      name: 'Outpass',
+      description: 'Outpass request creation, approval, and tracking',
+    },
+    {
+      name: 'Users',
+      description: 'User creation and management by admins and wardens',
+    },
+    {
       name: 'Health',
       description: 'Health check and monitoring endpoints',
     },
@@ -294,6 +306,7 @@ const options = {
     './src/routes/*.js',
     './src/controllers/*.js',
     './src/models/*.js',
+    './src/docs/*.js',
   ],
 };
 

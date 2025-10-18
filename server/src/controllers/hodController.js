@@ -85,6 +85,71 @@ const hodController = {
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
     }
+  },
+
+  // Get HOD profile
+  async getHodProfile(req, res) {
+    try {
+      if (req.user.role !== 'hod') {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+      const hod = await Hod.findById(req.user.id).select('-password');
+      if (!hod) {
+        return res.status(404).json({ message: 'HOD not found' });
+      }
+      res.json({ hod });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Get all HODs (Super Admin only)
+  async getAllHods(req, res) {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+      const hods = await Hod.find().select('-password');
+      res.json({ hods, count: hods.length });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Delete HOD (Super Admin only)
+  async deleteHod(req, res) {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+      const { hodId } = req.params;
+      const hod = await Hod.findByIdAndDelete(hodId);
+      if (!hod) {
+        return res.status(404).json({ message: 'HOD not found' });
+      }
+      res.json({ message: 'HOD deleted successfully' });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Get students by department (HOD only)
+  async getStudentsByDepartment(req, res) {
+    try {
+      if (req.user.role !== 'hod') {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+      const hod = await Hod.findById(req.user.id);
+      if (!hod) {
+        return res.status(404).json({ message: 'HOD not found' });
+      }
+      
+      const Student = (await import('../models/Student.js')).default;
+      const students = await Student.find({ department: hod.department, hodId: hod._id }).select('-password');
+      res.json({ students, count: students.length, department: hod.department });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
   }
 };
 
