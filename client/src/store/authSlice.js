@@ -1,13 +1,32 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import authService from '../services/authService'
+import { STORAGE_KEYS } from '../constants'
+
+// Get initial state from localStorage
+const getInitialState = () => {
+  const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)
+  const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
+  const userData = localStorage.getItem(STORAGE_KEYS.USER_DATA)
+
+  let user = null
+  try {
+    if (userData) {
+      user = JSON.parse(userData)
+    }
+  } catch (error) {
+    console.error('Failed to parse user data from localStorage:', error)
+  }
+
+  return {
+    user,
+    isAuthenticated: !!(accessToken && refreshToken),
+    loading: false,
+    error: null
+  }
+}
 
 // Initial state
-const initialState = {
-  user: null,
-  isAuthenticated: false,
-  loading: false,
-  error: null
-}
+const initialState = getInitialState()
 
 // Async thunks for auth actions
 export const loginUser = createAsyncThunk(
@@ -60,11 +79,11 @@ export const getCurrentUser = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk(
   'auth/logout',
-  async (_, { rejectWithValue }) => {
+  async () => {
     try {
       await authService.logout()
       return null
-    } catch (error) {
+    } catch {
       return null
     }
   }
@@ -83,11 +102,17 @@ const authSlice = createSlice({
       state.isAuthenticated = false
       state.loading = false
       state.error = null
+      // Clear localStorage
+      localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN)
+      localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
+      localStorage.removeItem(STORAGE_KEYS.USER_DATA)
     },
     setCredentials: (state, action) => {
       const { user } = action.payload
       state.user = user
       state.isAuthenticated = true
+      // Store user data in localStorage
+      localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user))
     }
   },
   extraReducers: (builder) => {
@@ -102,6 +127,8 @@ const authSlice = createSlice({
         state.user = action.payload.user
         state.isAuthenticated = true
         state.error = null
+        // Store user data in localStorage
+        localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(action.payload.user))
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.loading = false
@@ -125,7 +152,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false
       })
       // Refresh Token
-      .addCase(refreshToken.fulfilled, (state) => {
+      .addCase(refreshToken.fulfilled, () => {
         // No-op, handled by cookies
       })
       .addCase(refreshToken.rejected, (state) => {
@@ -153,9 +180,20 @@ const authSlice = createSlice({
         state.isAuthenticated = false
         state.loading = false
         state.error = null
+        // Clear localStorage
+        localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN)
+        localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
+        localStorage.removeItem(STORAGE_KEYS.USER_DATA)
       })
   }
 })
 
 export const { clearError, logout, setCredentials } = authSlice.actions
+
+// Selectors
+export const selectUser = (state) => state.auth.user
+export const selectIsAuthenticated = (state) => state.auth.isAuthenticated
+export const selectAuthLoading = (state) => state.auth.loading
+export const selectAuthError = (state) => state.auth.error
+
 export default authSlice.reducer

@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 /**
  * Auto-Create Initial Admin (Development Only)
  * 
@@ -12,8 +13,8 @@ import logger from './logger.js'
 import { config } from '../config/config.js'
 
 export const createInitialAdmin = async () => {
-  // Only run in development mode
-  if (config.nodeEnv !== 'development') {
+  // Only run in development mode and if initial admin creation is enabled
+  if (config.nodeEnv !== 'development' || !config.initialAdmin?.enabled) {
     return
   }
 
@@ -22,10 +23,12 @@ export const createInitialAdmin = async () => {
     const adminExists = await Admin.findOne({})
     
     if (!adminExists) {
-      // Create development admin
-      await Admin.create({
-        email: process.env.INITIAL_ADMIN_EMAIL || 'admin@college.edu',
-        password: process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123',
+      // Create development admin and keep a reference for logging
+      const adminEmail = config.initialAdmin?.email || process.env.INITIAL_ADMIN_EMAIL || 'admin@college.edu'
+      const adminPassword = config.initialAdmin?.password || process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123'
+      const devAdmin = await Admin.create({
+        email: adminEmail,
+        password: adminPassword,
         firstName: 'Dev',
         lastName: 'Admin',
         phone: '9999999999',
@@ -34,14 +37,14 @@ export const createInitialAdmin = async () => {
         isEmailVerified: true,
         isActive: true
       })
-      
-      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      logger.info('✅ Development admin created automatically!')
-      logger.info(`📧 Email:    ${devAdmin.email}`)
-      logger.info(`🔑 Password: ${process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123'}`)
-      logger.info(`🆔 ID:       ${devAdmin._id}`)
-      logger.info('⚠️  This is a development admin - change credentials!')
-      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  logger.info('✅ Development admin created automatically!')
+  logger.info(`📧 Email:    ${adminEmail}`)
+  logger.info(`🔑 Password: ${adminPassword}`)
+  logger.info(`🆔 ID:       ${devAdmin._id}`)
+  logger.info('⚠️  This is a development admin - change credentials!')
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     }
   } catch (error) {
     logger.error('Failed to create initial admin:', error)

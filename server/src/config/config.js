@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 import dotenv from 'dotenv'
 
 // Load environment variables
@@ -33,6 +34,13 @@ export const config = {
   
   // Admin Setup
   adminRegistrationSecret: process.env.ADMIN_REGISTRATION_SECRET,
+  // Initial development admin defaults (can be overridden via env)
+  initialAdmin: {
+    email: process.env.INITIAL_ADMIN_EMAIL || 'admin@college.edu',
+    password: process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123',
+    // Toggle creation of the initial dev admin (set to 'false' to disable)
+    enabled: process.env.ENABLE_INITIAL_ADMIN !== 'false'
+  },
   
   // Security
   cors: {

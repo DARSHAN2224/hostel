@@ -1,33 +1,128 @@
-import { useEffect } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-import { useNavigate } from 'react-router-dom'
-import { logoutUser, getCurrentUser } from '../store/authSlice'
+/**
+ * Dashboard Home Page
+ * Main dashboard with statistics and recent activity
+ */
+
+import { useEffect, useState } from 'react'
+import { useSelector } from 'react-redux'
+import { Link } from 'react-router-dom'
+import { 
+  UserGroupIcon, 
+  ClipboardDocumentCheckIcon, 
+  ClockIcon, 
+  CheckCircleIcon,
+  XCircleIcon,
+  ExclamationTriangleIcon,
+  ArrowTrendingUpIcon
+} from '@heroicons/react/24/outline'
+import DashboardLayout from '../layouts/DashboardLayout'
+import Card from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import { LoadingCard } from '../components/ui/Loading'
+import EmptyState from '../components/ui/EmptyState'
+import { selectUser } from '../store/authSlice'
+import { formatDate, formatRelativeTime, hasRole } from '../utils/helpers'
+import { USER_ROLES, OUTPASS_STATUS, ROUTES } from '../constants'
+import { getOutpasses } from '../services/outpassService'
+import { getStudents } from '../services/studentService'
 
 const Home = () => {
-  const dispatch = useDispatch()
-  const navigate = useNavigate()
-  const { user, isAuthenticated, loading } = useSelector((state) => state.auth)
+  const user = useSelector(selectUser)
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    activeStudents: 0,
+    pendingRequests: 0,
+    approvedToday: 0,
+    rejectedToday: 0,
+    expiringSoon: 0
+  })
+  const [recentOutpasses, setRecentOutpasses] = useState([])
 
   useEffect(() => {
-    if (isAuthenticated && !user) {
-      // If we have a token but no user data, fetch user
-      dispatch(getCurrentUser())
-    }
-  }, [dispatch, isAuthenticated, user])
+    fetchDashboardData()
+  }, [])
 
-  const handleLogout = async () => {
-    await dispatch(logoutUser())
-    navigate('/login')
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      
+      // Fetch statistics
+      const [outpassesRes, studentsRes] = await Promise.all([
+        getOutpasses({ limit: 10, sort: '-createdAt' }),
+        getStudents({ limit: 1 }) // Just to get total count
+      ])
+
+      // Calculate stats
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+
+      const pending = outpassesRes.data.filter(o => o.status === OUTPASS_STATUS.PENDING_WARDEN_APPROVAL)
+      const approvedToday = outpassesRes.data.filter(o => 
+        o.status === OUTPASS_STATUS.APPROVED && 
+        new Date(o.updatedAt) >= today
+      )
+      const rejectedToday = outpassesRes.data.filter(o => 
+        o.status === OUTPASS_STATUS.REJECTED && 
+        new Date(o.updatedAt) >= today
+      )
+
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const expiring = outpassesRes.data.filter(o => 
+        o.status === OUTPASS_STATUS.APPROVED && 
+        new Date(o.returnDateTime) <= tomorrow &&
+        new Date(o.returnDateTime) >= new Date()
+      )
+
+      setStats({
+        totalStudents: studentsRes.pagination?.total || 0,
+        activeStudents: studentsRes.pagination?.total || 0,
+        pendingRequests: pending.length,
+        approvedToday: approvedToday.length,
+        rejectedToday: rejectedToday.length,
+        expiringSoon: expiring.length
+      })
+
+      setRecentOutpasses(outpassesRes.data)
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error)
+    } finally {
+      setLoading(false)
+    }
   }
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case OUTPASS_STATUS.APPROVED:
+        return CheckCircleIcon
+      case OUTPASS_STATUS.REJECTED:
+        return XCircleIcon
+      case OUTPASS_STATUS.PENDING_WARDEN_APPROVAL:
+      case OUTPASS_STATUS.PENDING_HOD_APPROVAL:
+      case OUTPASS_STATUS.PENDING_PARENT_APPROVAL:
+        return ClockIcon
+      default:
+        return ClipboardDocumentCheckIcon
+    }
+  }
+
+  const isWarden = hasRole(user, USER_ROLES.WARDEN)
+  const isAdmin = hasRole(user, USER_ROLES.ADMIN)
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+      <DashboardLayout>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[1, 2, 3, 4].map(i => (
+              <LoadingCard key={i} />
+            ))}
+          </div>
+          <LoadingCard />
         </div>
-      </div>
+      </DashboardLayout>
     )
   }
 

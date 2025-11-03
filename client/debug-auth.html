@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Authentication</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #2196F3;
+            border-radius: 4px;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #2196F3;
+            font-size: 18px;
+        }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .error {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .success {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .warning {
+            color: #ff9800;
+            font-weight: bold;
+        }
+        .key {
+            color: #e91e63;
+            font-weight: bold;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .clear-btn {
+            background: #f44336;
+        }
+        .clear-btn:hover {
+            background: #da190b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Authentication Debug Tool</h1>
+        
+        <div class="section">
+            <h2>📦 LocalStorage Data</h2>
+            <div id="localStorage-data"></div>
+        </div>
+
+        <div class="section">
+            <h2>🔑 Access Token Decoded</h2>
+            <div id="token-data"></div>
+        </div>
+
+        <div class="section">
+            <h2>👤 User Data</h2>
+            <div id="user-data"></div>
+        </div>
+
+        <div class="section">
+            <h2>⚠️ Issues Detected</h2>
+            <div id="issues"></div>
+        </div>
+
+        <div class="section">
+            <h2>🛠️ Actions</h2>
+            <button onclick="location.reload()">🔄 Refresh</button>
+            <button class="clear-btn" onclick="clearAuth()">🗑️ Clear All Auth Data</button>
+            <button onclick="copyToClipboard()">📋 Copy Debug Info</button>
+        </div>
+    </div>
+
+    <script>
+        function parseJwt(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                return JSON.parse(jsonPayload);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function isTokenExpired(decodedToken) {
+            if (!decodedToken || !decodedToken.exp) return true;
+            return Date.now() >= decodedToken.exp * 1000;
+        }
+
+        function clearAuth() {
+            if (confirm('Are you sure you want to clear all authentication data?')) {
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('refreshToken');
+                localStorage.removeItem('userData');
+                localStorage.removeItem('user');
+                alert('Authentication data cleared! Refreshing page...');
+                location.reload();
+            }
+        }
+
+        function copyToClipboard() {
+            const debugInfo = {
+                localStorage: {
+                    accessToken: localStorage.getItem('accessToken') || 'NOT FOUND',
+                    refreshToken: localStorage.getItem('refreshToken') || 'NOT FOUND',
+                    userData: localStorage.getItem('userData') || 'NOT FOUND'
+                },
+                decodedToken: parseJwt(localStorage.getItem('accessToken')),
+                timestamp: new Date().toISOString()
+            };
+            navigator.clipboard.writeText(JSON.stringify(debugInfo, null, 2))
+                .then(() => alert('Debug info copied to clipboard!'))
+                .catch(err => alert('Failed to copy: ' + err));
+        }
+
+        function debugAuth() {
+            const accessToken = localStorage.getItem('accessToken');
+            const refreshToken = localStorage.getItem('refreshToken');
+            const userData = localStorage.getItem('userData');
+            const issues = [];
+
+            // Display localStorage data
+            let storageHtml = '<pre>';
+            storageHtml += `<span class="key">accessToken:</span> ${accessToken ? '✅ Present (' + accessToken.substring(0, 20) + '...)' : '<span class="error">❌ Missing</span>'}\n`;
+            storageHtml += `<span class="key">refreshToken:</span> ${refreshToken ? '✅ Present (' + refreshToken.substring(0, 20) + '...)' : '<span class="error">❌ Missing</span>'}\n`;
+            storageHtml += `<span class="key">userData:</span> ${userData ? '✅ Present' : '<span class="error">❌ Missing</span>'}`;
+            storageHtml += '</pre>';
+            document.getElementById('localStorage-data').innerHTML = storageHtml;
+
+            if (!accessToken) {
+                issues.push('❌ <span class="error">No access token found</span> - You are not logged in');
+            }
+            if (!refreshToken) {
+                issues.push('❌ <span class="error">No refresh token found</span> - Session cannot be refreshed');
+            }
+            if (!userData) {
+                issues.push('⚠️ <span class="warning">No user data found</span> - User info not stored');
+            }
+
+            // Decode and display token
+            if (accessToken) {
+                const decoded = parseJwt(accessToken);
+                if (decoded) {
+                    const expired = isTokenExpired(decoded);
+                    let tokenHtml = '<pre>';
+                    tokenHtml += JSON.stringify(decoded, null, 2);
+                    tokenHtml += '\n\n';
+                    if (expired) {
+                        tokenHtml += '<span class="error">⚠️ TOKEN EXPIRED!</span>\n';
+                        tokenHtml += `Expired at: ${new Date(decoded.exp * 1000).toLocaleString()}\n`;
+                        issues.push('❌ <span class="error">Access token has expired</span>');
+                    } else {
+                        tokenHtml += '<span class="success">✅ TOKEN VALID</span>\n';
+                        const expiresIn = Math.floor((decoded.exp * 1000 - Date.now()) / 1000 / 60);
+                        tokenHtml += `Expires in: ${expiresIn} minutes\n`;
+                    }
+                    tokenHtml += `Current time: ${new Date().toLocaleString()}`;
+                    tokenHtml += '</pre>';
+
+                    // Check for role
+                    if (!decoded.role) {
+                        issues.push('❌ <span class="error">No role found in token</span> - This will cause authorization errors');
+                    } else {
+                        tokenHtml += `<p class="success">✅ Role found: <strong>${decoded.role}</strong></p>`;
+                    }
+
+                    document.getElementById('token-data').innerHTML = tokenHtml;
+                } else {
+                    document.getElementById('token-data').innerHTML = '<p class="error">❌ Failed to decode token - Invalid format</p>';
+                    issues.push('❌ <span class="error">Access token is malformed</span>');
+                }
+            } else {
+                document.getElementById('token-data').innerHTML = '<p class="error">No token to decode</p>';
+            }
+
+            // Display user data
+            if (userData) {
+                try {
+                    const user = JSON.parse(userData);
+                    let userHtml = '<pre>' + JSON.stringify(user, null, 2) + '</pre>';
+                    if (!user.role) {
+                        userHtml += '<p class="warning">⚠️ No role in user data</p>';
+                        issues.push('⚠️ <span class="warning">User data missing role field</span>');
+                    } else {
+                        userHtml += `<p class="success">✅ User role: <strong>${user.role}</strong></p>`;
+                    }
+                    document.getElementById('user-data').innerHTML = userHtml;
+                } catch (e) {
+                    document.getElementById('user-data').innerHTML = '<p class="error">❌ Invalid JSON in userData</p>';
+                    issues.push('❌ <span class="error">User data is not valid JSON</span>');
+                }
+            } else {
+                document.getElementById('user-data').innerHTML = '<p class="error">No user data stored</p>';
+            }
+
+            // Display issues
+            if (issues.length === 0) {
+                document.getElementById('issues').innerHTML = '<p class="success">✅ No critical issues detected!</p>';
+            } else {
+                let issuesHtml = '<ul>';
+                issues.forEach(issue => {
+                    issuesHtml += `<li>${issue}</li>`;
+                });
+                issuesHtml += '</ul>';
+                document.getElementById('issues').innerHTML = issuesHtml;
+            }
+        }
+
+        // Run on page load
+        debugAuth();
+    </script>
+</body>
+</html>

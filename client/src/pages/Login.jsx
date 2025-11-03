@@ -1,162 +1,178 @@
-import { useState, useEffect } from 'react'
+/**
+ * Login Page
+ * User authentication with role-based login
+ */
+
+import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { Link, useNavigate } from 'react-router-dom'
-import { loginUser, clearError } from '../store/authSlice'
+import { useForm } from 'react-hook-form'
+import toast from 'react-hot-toast'
+import { loginUser, selectIsAuthenticated, selectAuthLoading, selectAuthError } from '../store/authSlice'
+import Button from '../components/ui/Button'
+import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
+import { USER_ROLES, ROUTES } from '../constants'
+import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline'
 
 const Login = () => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  })
-
   const dispatch = useDispatch()
   const navigate = useNavigate()
-  const { loading, error, isAuthenticated } = useSelector((state) => state.auth)
+  const isAuthenticated = useSelector(selectIsAuthenticated)
+  const loading = useSelector(selectAuthLoading)
+  const error = useSelector(selectAuthError)
 
-  // Redirect if already authenticated
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    defaultValues: {
+      email: '',
+      password: '',
+      role: USER_ROLES.WARDEN
+    }
+  })
+
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/home')
+      navigate(ROUTES.DASHBOARD)
     }
   }, [isAuthenticated, navigate])
 
-  // Clear error when component unmounts
   useEffect(() => {
-    return () => {
-      dispatch(clearError())
+    if (error) {
+      toast.error(error)
     }
-  }, [dispatch])
+  }, [error])
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    })
-  }
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    
-    if (!formData.email || !formData.password) {
-      return
-    }
-
+  const onSubmit = async (data) => {
     try {
-      await dispatch(loginUser(formData)).unwrap()
-      navigate('/home')
-    } catch (error) {
-      // Error is handled by Redux
-      console.error('Login failed:', error)
+      await dispatch(loginUser(data)).unwrap()
+      toast.success('Login successful!')
+      navigate(ROUTES.DASHBOARD)
+    } catch {
+      // Error is handled by useEffect above
     }
   }
+
+  const roleOptions = [
+    { value: USER_ROLES.WARDEN, label: 'Warden' },
+    { value: USER_ROLES.ADMIN, label: 'Admin' },
+    { value: USER_ROLES.STUDENT, label: 'Student' },
+    { value: USER_ROLES.SECURITY, label: 'Security' }
+  ]
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="bg-blue-600 text-white p-3 rounded-full">
-            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-            </svg>
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Header */}
+      <header className="py-4 px-6 sm:px-10 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="container mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 text-primary">
+              <svg fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                <path 
+                  clipRule="evenodd" 
+                  d="M47.2426 24L24 47.2426L0.757355 24L24 0.757355L47.2426 24ZM12.2426 21H35.7574L24 9.24264L12.2426 21Z" 
+                  fill="currentColor" 
+                  fillRule="evenodd"
+                />
+              </svg>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+              Hostel Management
+            </h1>
           </div>
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Sign in to your account
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Don't have an account?{' '}
-          <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
-            Sign up here
-          </Link>
-        </p>
-      </div>
+      </header>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md">
-                {error}
-              </div>
-            )}
+      {/* Main content */}
+      <main className="flex-grow flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-md space-y-8">
+          <div>
+            <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+              Secure Login
+            </h2>
+            <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+              Access your dashboard
+            </p>
+          </div>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <div className="mt-1">
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  placeholder="Enter your email"
-                />
-              </div>
+          <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-6">
+            <div className="space-y-4">
+              <Select
+                label="Select Role"
+                options={roleOptions}
+                {...register('role', { required: 'Role is required' })}
+                error={errors.role?.message}
+                required
+              />
+
+              <Input
+                label="Email Address"
+                type="email"
+                icon={EnvelopeIcon}
+                placeholder="your.email@example.com"
+                {...register('email', {
+                  required: 'Email is required',
+                  pattern: {
+                    value: /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+                    message: 'Invalid email address'
+                  }
+                })}
+                error={errors.email?.message}
+                required
+              />
+
+              <Input
+                label="Password"
+                type="password"
+                icon={LockClosedIcon}
+                placeholder="Enter your password"
+                {...register('password', {
+                  required: 'Password is required',
+                  minLength: {
+                    value: 6,
+                    message: 'Password must be at least 6 characters'
+                  }
+                })}
+                error={errors.password?.message}
+                required
+              />
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <div className="mt-1">
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  placeholder="Enter your password"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
-                  Remember me
-                </label>
-              </div>
-
+            <div className="flex items-center justify-end">
               <div className="text-sm">
-                <Link to="/forgot-password" className="font-medium text-blue-600 hover:text-blue-500">
+                <Link 
+                  to="/forgot-password" 
+                  className="font-medium text-primary hover:text-primary/80"
+                >
                   Forgot your password?
                 </Link>
               </div>
             </div>
 
             <div>
-              <button
+              <Button
                 type="submit"
+                fullWidth
+                loading={loading}
                 disabled={loading}
-                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? (
-                  <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Signing in...
-                  </div>
-                ) : (
-                  'Sign in'
-                )}
-              </button>
+                {loading ? 'Signing in...' : 'Sign in'}
+              </Button>
+            </div>
+
+            <div className="text-center text-sm text-gray-600 dark:text-gray-400">
+              <p>
+                Need an account?{' '}
+                <Link 
+                  to={ROUTES.REGISTER} 
+                  className="font-medium text-primary hover:text-primary/80"
+                >
+                  Contact administrator
+                </Link>
+              </p>
             </div>
           </form>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

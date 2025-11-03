@@ -9,6 +9,7 @@
     "dev": "nodemon --watch src --exec node src/server.js",
     "dev:debug": "nodemon --inspect --watch src --exec node src/server.js",
     "seed:admin": "node src/scripts/seedAdmin.js",
+    "seed:warden": "node src/scripts/seedWarden.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "cross-env NODE_ENV=test jest --coverage --verbose",

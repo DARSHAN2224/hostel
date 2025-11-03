@@ -1,13 +1,13 @@
 import { configureStore } from '@reduxjs/toolkit'
 import authReducer from './authSlice'
+import studentsReducer from './studentsSlice'
+import outpassReducer from './outpassSlice'
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
-    // Add other reducers here as you build more features
-    // users: usersReducer,
-    // rooms: roomsReducer,
-    // outpasses: outpassesReducer,
+    students: studentsReducer,
+    outpass: outpassReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
@@ -15,9 +15,9 @@ export const store = configureStore({
         ignoredActions: ['persist/PERSIST'],
       },
     }),
-  devTools: process.env.NODE_ENV !== 'production',
+  devTools: import.meta.env.MODE !== 'production',
 })
 
-  // For TypeScript users, you would export these types:
-  // export type RootState = ReturnType<typeof store.getState>
-  // export type AppDispatch = typeof store.dispatch
+// For TypeScript users, you would export these types:
+// export type RootState = ReturnType<typeof store.getState>
+// export type AppDispatch = typeof store.dispatch

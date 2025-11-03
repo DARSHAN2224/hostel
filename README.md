@@ -1,5 +1,7 @@
 # Hostel Management Monorepo Structure
 
+Quick reference: See docs/PROJECT_OVERVIEW.md for the end-to-end architecture, request flow, data models, roles/permissions, and core workflows.
+
 This workspace is split into a Vite-powered React client and a Node.js server. The directories below provide a clean starting point that mirrors common industry conventions and keeps responsibilities separated.
 
 ## Client (`client/`)
