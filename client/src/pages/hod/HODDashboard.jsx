@@ -27,8 +27,12 @@ import Modal from '../../components/ui/Modal'
 import Textarea from '../../components/ui/Textarea'
 import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
-import { OUTPASS_STATUS } from '../../constants'
 import { formatDateTime } from '../../utils/helpers'
+import outpassService from '../../services/outpassService'
+import jsPDF from 'jspdf'
+import ExcelJS from 'exceljs'
+import { saveAs } from 'file-saver'
+import toast from 'react-hot-toast'
 
 export default function HODDashboard() {
   const [loading, setLoading] = useState(true)
@@ -49,35 +53,17 @@ export default function HODDashboard() {
   const fetchHODData = useCallback(async () => {
     try {
       setLoading(true)
-      // TODO: Implement API calls
-      // Simulated data
-      setTimeout(() => {
-        setStats({
-          totalStudents: 180,
-          pendingApprovals: 12,
-          approvedThisMonth: 145,
-          rejectedThisMonth: 8
-        })
-        setPendingApprovals([
-          {
-            _id: '1',
-            student: {
-              firstName: 'John',
-              lastName: 'Doe',
-              registerNumber: 'CS2021001',
-              year: 3,
-              department: 'Computer Science'
-            },
-            reason: 'Home visit for family function',
-            destination: 'Chennai',
-            departureDateTime: new Date().toISOString(),
-            returnDateTime: new Date(Date.now() + 86400000).toISOString(),
-            status: OUTPASS_STATUS.APPROVED_BY_WARDEN,
-            createdAt: new Date().toISOString()
-          }
-        ])
-        setLoading(false)
-      }, 1000)
+      const res = await outpassService.getHodDashboard?.()
+      const data = res?.data || {}
+      const statsData = data.statistics || {}
+      setStats({
+        totalStudents: statsData.totalStudents || 0,
+        pendingApprovals: statsData.pendingOutpasses || 0,
+        approvedThisMonth: statsData.approvedOutpasses || 0,
+        rejectedThisMonth: statsData.rejectedOutpasses || 0
+      })
+      setPendingApprovals(Array.isArray(data.pendingOutpasses) ? data.pendingOutpasses : [])
+      setLoading(false)
     } catch (error) {
       console.error('Failed to fetch HOD data:', error)
       setLoading(false)
@@ -107,20 +93,85 @@ export default function HODDashboard() {
     setShowRejectModal(true)
   }
 
-  const confirmApprove = () => {
-    // TODO: Implement HOD approval
-    console.log('Approving outpass:', selectedOutpass, approveComments)
-    setShowApproveModal(false)
-    setSelectedOutpass(null)
-    setApproveComments('')
+  const confirmApprove = async () => {
+    try {
+      await outpassService.hodApprove(selectedOutpass._id, approveComments)
+      toast.success('Outpass approved')
+      setShowApproveModal(false)
+      setSelectedOutpass(null)
+      setApproveComments('')
+      fetchHODData()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to approve')
+    }
   }
 
-  const confirmReject = () => {
-    // TODO: Implement HOD rejection
-    console.log('Rejecting outpass:', selectedOutpass, rejectReason)
-    setShowRejectModal(false)
-    setSelectedOutpass(null)
-    setRejectReason('')
+  const confirmReject = async () => {
+    try {
+      await outpassService.hodReject(selectedOutpass._id, rejectReason)
+      toast.success('Outpass rejected')
+      setShowRejectModal(false)
+      setSelectedOutpass(null)
+      setRejectReason('')
+      fetchHODData()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to reject')
+    }
+  }
+
+  const downloadDeptReport = async () => {
+    try {
+      const now = new Date().toISOString().slice(0,10)
+      // Build rows
+      const rows = pendingApprovals.map(p => ({
+        Student: `${p.student?.firstName || ''} ${p.student?.lastName || ''}`.trim(),
+        Register: p.student?.registerNumber,
+        Year: p.student?.year,
+        Reason: p.reason,
+        Destination: p.destination,
+        Depart: formatDateTime(p.departureDateTime),
+        Return: formatDateTime(p.returnDateTime),
+        Status: p.status
+      }))
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('Dept Pending')
+      const headers = Object.keys(rows[0] || { Student:'', Register:'', Year:'', Reason:'', Destination:'', Depart:'', Return:'', Status:'' })
+      ws.addRow(headers)
+      for (const r of rows) {
+        ws.addRow(headers.map(h=>r[h]))
+      }
+      for (const col of ws.columns) {
+        let m=10
+        col.eachCell({includeEmpty:true}, c=>{
+          const v=c.value?String(c.value):''
+          m=Math.max(m,v.length+2)
+        })
+        col.width=Math.min(m,50)
+      }
+      const buf = await wb.xlsx.writeBuffer()
+      saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `hod_department_pending_${now}.xlsx`)
+
+      // Simple PDF summary
+      const doc = new jsPDF()
+      doc.setFontSize(14)
+      doc.text('HOD Department Pending Report', 14, 20)
+      doc.setFontSize(10)
+      let y = 30
+      for (const r of rows.slice(0, 25)) {
+        doc.text(`${r.Student} | ${r.Register} | ${r.Status}`, 14, y)
+        y+=6
+        if(y>280){
+          doc.addPage()
+          y=20
+        }
+      }
+      doc.save(`hod_department_pending_${now}.pdf`)
+    } catch (err) {
+      console.error('Failed to export', err)
+      toast.error('Failed to download department report')
+    }
   }
 
   const statCards = [
@@ -276,7 +327,10 @@ export default function HODDashboard() {
           >
             <Card glassmorphic gradient>
               <CardHeader>
-                <CardTitle gradient icon={DocumentTextIcon}>Pending Approvals</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle gradient icon={DocumentTextIcon}>Pending Approvals</CardTitle>
+                  <Button variant="ghost" onClick={downloadDeptReport}>Download Department Report</Button>
+                </div>
                 <div className="mt-4">
                   <Input
                     placeholder="Search by name or register number..."

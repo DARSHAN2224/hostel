@@ -30,10 +30,10 @@ import Badge from '../../components/ui/Badge'
 import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import { selectUser } from '../../store/authSlice'
-import { outpassService } from '../../services'
-import { studentService } from '../../services'
+import { outpassService, studentService } from '../../services'
 import { formatDate, formatRelativeTime } from '../../utils/helpers'
-import { OUTPASS_STATUS, OUTPASS_TYPES } from '../../constants'
+import { OUTPASS_STATUS } from '../../constants'
+import QRCode from 'qrcode'
 
 export default function StudentDashboard() {
   const user = useSelector(selectUser)
@@ -53,6 +53,37 @@ export default function StudentDashboard() {
     returnTime: '',
     hodApprovalRequested: false
   })
+
+  const handleDownloadQR = async () => {
+    try {
+      // Prefer the most recent approved outpass that hasn't been completed yet
+      const approved = recentOutpasses.filter(o => [
+        OUTPASS_STATUS.APPROVED,
+        OUTPASS_STATUS.APPROVED_BY_WARDEN,
+        OUTPASS_STATUS.APPROVED_BY_HOD
+      ].includes(o.status))
+      const target = approved[0]
+      if (!target) {
+        toast.error('No approved outpass available to generate QR')
+        return
+      }
+      const payload = {
+        type: 'outpass',
+        outpassId: target._id,
+        studentId: user?._id,
+        registerNumber: profile?.registerNumber || user?.registerNumber
+      }
+      const dataUrl = await QRCode.toDataURL(JSON.stringify(payload), { width: 512, margin: 2 })
+      const link = document.createElement('a')
+      link.href = dataUrl
+      link.download = `outpass-${target._id}.png`
+      link.click()
+      toast.success('QR code downloaded')
+    } catch (err) {
+      console.error('Failed to generate QR:', err)
+      toast.error('Failed to generate QR code')
+    }
+  }
 
   // Fetch student profile
   const fetchProfile = useCallback(async () => {
@@ -302,6 +333,13 @@ export default function StudentDashboard() {
                       </p>
                       <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">Pending</p>
                     </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-4">
+                    <Button onClick={handleDownloadQR} variant="outline">
+                      Download QR for Latest Approved Outpass
+                    </Button>
                   </div>
                 </div>
               </CardContent>

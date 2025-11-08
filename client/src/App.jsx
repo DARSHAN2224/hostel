@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { Provider } from 'react-redux'
+import { Provider, useSelector } from 'react-redux'
 import { Toaster } from 'react-hot-toast'
 import { store } from './store/store'
 
@@ -9,20 +9,46 @@ import RoleLogin from './pages/auth/RoleLogin'
 import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import StudentManagement from './pages/students/StudentManagement'
+import WardenManagement from './pages/wardens/WardenManagement'
+import HODManagement from './pages/hods/HODManagement'
+import ParentManagement from './pages/parents/ParentManagement'
 import StudentDashboard from './pages/students/StudentDashboard'
 import OutpassManagement from './pages/outpass/OutpassManagement'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import SecurityDashboard from './pages/security/SecurityDashboard'
 import HODDashboard from './pages/hod/HODDashboard'
 import Settings from './pages/settings/Settings'
+import OutpassHistory from './pages/history/OutpassHistory'
+import Reports from './pages/reports/Reports'
 import ProtectedRoute from './components/ProtectedRoute'
 import PublicRoute from './components/PublicRoute'
+import RoleBasedRoute from './components/RoleBasedRoute'
 import { ROUTES } from './constants'
+import { ThemeProvider } from './context/ThemeContext'
+import { selectUser } from './store/authSlice'
 import './App.css'
+
+// Role-based dashboard router: redirects /dashboard based on the logged-in user's role
+function DashboardRouter() {
+  const user = useSelector(selectUser)
+
+  const role = user?.role
+  if (!role) return <Dashboard />
+
+  // Redirect to role-specific dashboards
+  if (role === 'admin') return <Navigate to="/admin/dashboard" replace />
+  if (role === 'student') return <Navigate to="/student/dashboard" replace />
+  if (role === 'security') return <Navigate to="/security/dashboard" replace />
+  if (role === 'hod') return <Navigate to="/hod/dashboard" replace />
+
+  // Default: warden and any other roles use the unified dashboard
+  return <Dashboard />
+}
 
 function App() {
   return (
     <Provider store={store}>
+      <ThemeProvider>
       <Router>
         <div className="App">
           <Routes>
@@ -81,7 +107,7 @@ function App() {
               path={ROUTES.DASHBOARD}
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <DashboardRouter />
                 </ProtectedRoute>
               } 
             />
@@ -106,6 +132,36 @@ function App() {
               element={
                 <ProtectedRoute>
                   <StudentManagement />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path={ROUTES.WARDENS}
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <WardenManagement />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path={ROUTES.HODS}
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <HODManagement />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/parents"
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['admin', 'warden']}>
+                    <ParentManagement />
+                  </RoleBasedRoute>
                 </ProtectedRoute>
               } 
             />
@@ -149,6 +205,34 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path={ROUTES.PROFILE}
+              element={
+                <ProtectedRoute>
+                  <Settings initialTab="profile" />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/history"
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['admin', 'warden', 'hod']}>
+                    <OutpassHistory />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/reports"
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['admin', 'warden', 'hod']}>
+                    <Reports />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              } 
+            />
             
             {/* Catch all route - redirect to home */}
             <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
@@ -181,6 +265,7 @@ function App() {
           />
         </div>
       </Router>
+      </ThemeProvider>
     </Provider>
   )
 }

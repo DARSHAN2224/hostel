@@ -3,6 +3,7 @@
  * Reusable table with animations and responsive design
  */
 
+import PropTypes from 'prop-types'
 import { motion as Motion } from 'framer-motion'
 import { cn } from '../../utils/helpers'
 
@@ -19,6 +20,11 @@ export default function Table({ children, className = '' }) {
   )
 }
 
+Table.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+}
+
 export function TableHeader({ children, className = '', gradient = false }) {
   return (
     <thead className={cn(
@@ -30,6 +36,12 @@ export function TableHeader({ children, className = '', gradient = false }) {
       {children}
     </thead>
   )
+}
+
+TableHeader.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  gradient: PropTypes.bool,
 }
 
 export function TableBody({ children, className = '', glassmorphic = false }) {
@@ -44,6 +56,12 @@ export function TableBody({ children, className = '', glassmorphic = false }) {
       {children}
     </tbody>
   )
+}
+
+TableBody.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  glassmorphic: PropTypes.bool,
 }
 
 export function TableRow({ 
@@ -82,6 +100,14 @@ export function TableRow({
   )
 }
 
+TableRow.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  hover: PropTypes.bool,
+  animated: PropTypes.bool,
+  index: PropTypes.number,
+}
+
 export function TableHead({ children, className = '', ...props }) {
   return (
     <th
@@ -96,6 +122,11 @@ export function TableHead({ children, className = '', ...props }) {
   )
 }
 
+TableHead.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+}
+
 export function TableCell({ children, className = '', ...props }) {
   return (
     <td
@@ -108,4 +139,9 @@ export function TableCell({ children, className = '', ...props }) {
       {children}
     </td>
   )
+}
+
+TableCell.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
 }

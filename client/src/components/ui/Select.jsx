@@ -3,6 +3,7 @@
  * Dropdown select input with glassmorphic effects
  */
 
+import PropTypes from 'prop-types'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { ChevronDownIcon } from '@heroicons/react/24/outline'
 import { cn } from '../../utils/helpers'
@@ -11,6 +12,7 @@ export default function Select({
   label,
   error,
   options = [],
+  children,
   className = '',
   containerClassName = '',
   required = false,
@@ -49,21 +51,26 @@ export default function Select({
           whileFocus={animated ? { scale: 1.01 } : {}}
           {...props}
         >
-          {placeholder && (
-            <option value="" className="text-slate-400">
-              {placeholder}
-            </option>
+          {/* Support both children and options prop */}
+          {children || (
+            <>
+              {placeholder && (
+                <option value="" className="text-slate-400">
+                  {placeholder}
+                </option>
+              )}
+              {options.map((option) => (
+                <option 
+                  key={option.value} 
+                  value={option.value}
+                  disabled={option.disabled}
+                  className="text-slate-900 dark:text-white bg-white dark:bg-slate-800"
+                >
+                  {option.label}
+                </option>
+              ))}
+            </>
           )}
-          {options.map((option) => (
-            <option 
-              key={option.value} 
-              value={option.value}
-              disabled={option.disabled}
-              className="text-slate-900 dark:text-white bg-white dark:bg-slate-800"
-            >
-              {option.label}
-            </option>
-          ))}
         </Motion.select>
         
         {/* Custom dropdown arrow */}
@@ -93,4 +100,21 @@ export default function Select({
       </AnimatePresence>
     </div>
   )
+}
+
+Select.propTypes = {
+  label: PropTypes.string,
+  error: PropTypes.string,
+  options: PropTypes.arrayOf(PropTypes.shape({
+    value: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    disabled: PropTypes.bool,
+  })),
+  children: PropTypes.node,
+  className: PropTypes.string,
+  containerClassName: PropTypes.string,
+  required: PropTypes.bool,
+  placeholder: PropTypes.string,
+  animated: PropTypes.bool,
+  glassmorphic: PropTypes.bool,
 }

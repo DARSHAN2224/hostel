@@ -4,8 +4,9 @@
  */
 
 import { useState } from 'react'
+import PropTypes from 'prop-types'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
-import { useSelector } from 'react-redux'
+import { useSelector, useDispatch } from 'react-redux'
 import {
   UserCircleIcon,
   LockClosedIcon,
@@ -17,19 +18,26 @@ import {
   KeyIcon,
   EnvelopeIcon,
   PhoneIcon,
-  HomeIcon
+  HomeIcon,
+  PhotoIcon
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Card'
 import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
-import { selectUser } from '../../store/authSlice'
+import { selectUser, setUser } from '../../store/authSlice'
+import { updateProfile as apiUpdateProfile, changePassword as apiChangePassword } from '../../services/authService'
+import toast from 'react-hot-toast'
+import { useTheme } from '../../hooks/useTheme'
+import apiClient from '../../services/api'
 
-export default function Settings() {
+export default function Settings({ initialTab = 'profile' }) {
   const user = useSelector(selectUser)
-  const [activeTab, setActiveTab] = useState('profile')
-  const [theme, setTheme] = useState('light')
+  const dispatch = useDispatch()
+  const [activeTab, setActiveTab] = useState(initialTab)
+  const { theme, setTheme } = useTheme()
+  const [uploading, setUploading] = useState(false)
   const [notifications, setNotifications] = useState({
     email: true,
     sms: false,
@@ -69,21 +77,96 @@ export default function Settings() {
     setPasswordData(prev => ({ ...prev, [name]: value }))
   }
 
-  const handleProfileSubmit = (e) => {
+  const handleProfileSubmit = async (e) => {
     e.preventDefault()
-    // TODO: Implement profile update
-    console.log('Update profile:', profileData)
+    try {
+      const loading = toast.loading('Updating profile...')
+      await apiUpdateProfile({
+        firstName: profileData.firstName,
+        lastName: profileData.lastName,
+        phone: profileData.phone,
+      })
+      toast.success('Profile updated', { id: loading })
+    } catch (err) {
+      toast.error(err?.message || 'Failed to update profile')
+    }
   }
 
-  const handlePasswordSubmit = (e) => {
+  const handlePasswordSubmit = async (e) => {
     e.preventDefault()
-    // TODO: Implement password change
-    console.log('Change password')
-    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast.error('Passwords do not match')
+      return
+    }
+    try {
+      const loading = toast.loading('Changing password...')
+      await apiChangePassword({ currentPassword: passwordData.currentPassword, newPassword: passwordData.newPassword })
+      toast.success('Password changed', { id: loading })
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    } catch (err) {
+      toast.error(err?.message || 'Failed to change password')
+    }
+  }
+
+  const handleProfilePictureUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+    if (!validTypes.includes(file.type)) {
+      toast.error('Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed.')
+      return
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds 5MB limit')
+      return
+    }
+
+    try {
+      setUploading(true)
+      const loading = toast.loading('Uploading profile picture...')
+      
+      const formData = new FormData()
+      formData.append('profilePicture', file)
+
+      const response = await apiClient.post('/users/profile-picture', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+
+      // Update user in Redux store
+      const updatedUser = { ...user, profilePicture: response.data.data.profilePicture }
+      dispatch(setUser(updatedUser))
+
+      toast.success('Profile picture uploaded successfully', { id: loading })
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to upload profile picture')
+    } finally {
+      setUploading(false)
+    }
   }
 
   const handleNotificationToggle = (key) => {
     setNotifications(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const saveNotifications = async () => {
+    try {
+      const res = await apiClient.post('/notifications/preferences', notifications)
+      if (res.status >= 200 && res.status < 300) {
+        toast.success('Preferences saved')
+      } else {
+        throw new Error('Failed')
+      }
+    } catch {
+      // Fallback: persist locally if backend not available
+      localStorage.setItem('notification-preferences', JSON.stringify(notifications))
+      toast.success('Preferences saved locally')
+    }
   }
 
   return (
@@ -164,10 +247,18 @@ export default function Settings() {
                         className="relative"
                       >
                         <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full blur-xl opacity-50" />
-                        <div className="relative h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-2xl">
-                          <span className="text-4xl font-bold text-white">
-                            {user?.firstName?.charAt(0) || 'U'}
-                          </span>
+                        <div className="relative h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-2xl overflow-hidden">
+                          {user?.profilePicture ? (
+                            <img 
+                              src={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000'}${user.profilePicture}`}
+                              alt="Profile" 
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-4xl font-bold text-white">
+                              {user?.firstName?.charAt(0) || 'U'}
+                            </span>
+                          )}
                         </div>
                       </Motion.div>
                       <div>
@@ -175,9 +266,24 @@ export default function Settings() {
                           {user?.firstName} {user?.lastName}
                         </h3>
                         <p className="text-sm text-slate-600 dark:text-slate-400">{user?.role}</p>
-                        <Button variant="outline" className="mt-2">
-                          Change Avatar
-                        </Button>
+                        <div className="mt-2">
+                          <label htmlFor="avatar-upload">
+                            <span 
+                              className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border-2 border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition-all duration-300"
+                            >
+                              <PhotoIcon className="h-4 w-4" />
+                              {uploading ? 'Uploading...' : 'Change Avatar'}
+                            </span>
+                          </label>
+                          <input
+                            id="avatar-upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProfilePictureUpload}
+                            className="hidden"
+                            disabled={uploading}
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -368,7 +474,7 @@ export default function Settings() {
                           onClick={() => handleNotificationToggle(item.key)}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                             notifications[item.key]
-                              ? 'bg-gradient-to-r from-purple-500 to-pink-500'
+                            ? 'bg-gradient-to-r from-purple-500 to-pink-500'
                               : 'bg-slate-200 dark:bg-slate-700'
                           }`}
                         >
@@ -384,7 +490,7 @@ export default function Settings() {
                   </div>
 
                   <div className="flex justify-end gap-3 mt-6">
-                    <Button icon={CheckCircleIcon}>
+                    <Button icon={CheckCircleIcon} onClick={saveNotifications}>
                       Save Preferences
                     </Button>
                   </div>
@@ -418,10 +524,18 @@ export default function Settings() {
                       <option value="auto">Auto (System)</option>
                     </Select>
 
+                    <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+                      <CheckCircleIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                      <p className="text-sm text-blue-900 dark:text-blue-100">
+                        Theme changed to <strong>{theme === 'auto' ? 'Auto (System)' : theme.charAt(0).toUpperCase() + theme.slice(1)}</strong>. Changes apply immediately.
+                      </p>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <Motion.div
                         whileHover={{ scale: 1.02, y: -4 }}
-                        className="p-6 bg-gradient-to-br from-slate-50 to-white rounded-xl border-2 border-slate-200 cursor-pointer"
+                        onClick={() => setTheme('light')}
+                        className={`p-6 bg-gradient-to-br from-slate-50 to-white rounded-xl border-2 ${theme === 'light' ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200'} cursor-pointer`}
                       >
                         <div className="w-full h-32 bg-white rounded-lg shadow-inner mb-3" />
                         <h4 className="font-medium text-slate-900">Light Mode</h4>
@@ -430,18 +544,13 @@ export default function Settings() {
 
                       <Motion.div
                         whileHover={{ scale: 1.02, y: -4 }}
-                        className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl border-2 border-slate-700 cursor-pointer"
+                        onClick={() => setTheme('dark')}
+                        className={`p-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl border-2 ${theme === 'dark' ? 'border-blue-500 ring-2 ring-blue-400/30' : 'border-slate-700'} cursor-pointer`}
                       >
                         <div className="w-full h-32 bg-slate-800 rounded-lg shadow-inner mb-3" />
                         <h4 className="font-medium text-white">Dark Mode</h4>
                         <p className="text-sm text-slate-400">Easy on the eyes</p>
                       </Motion.div>
-                    </div>
-
-                    <div className="flex justify-end gap-3">
-                      <Button icon={CheckCircleIcon}>
-                        Apply Theme
-                      </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -452,4 +561,8 @@ export default function Settings() {
       </Motion.div>
     </DashboardLayout>
   )
+}
+
+Settings.propTypes = {
+  initialTab: PropTypes.string,
 }

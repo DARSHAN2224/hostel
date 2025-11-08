@@ -3,8 +3,147 @@
  */
 
 import apiClient from './api'
+import { API_ENDPOINTS } from '../constants'
 
 export const wardenService = {
+  // ============ Warden CRUD Operations (Admin) ============
+  
+  /**
+   * Get all wardens with optional filters
+   * @param {Object} filters - { hostelType, hostelBlock, search }
+   * @returns {Promise} - List of wardens
+   */
+  getWardens: async (filters = {}) => {
+    try {
+      const params = {
+        role: 'warden',
+        limit: 100,
+        ...filters
+      }
+      
+      // Remove empty filter values
+      for (const key of Object.keys(params)) {
+        if (params[key] === '' || params[key] === undefined || params[key] === null) {
+          delete params[key]
+        }
+      }
+      
+      const response = await apiClient.get(API_ENDPOINTS.USERS, { params })
+      return response.data?.data?.users || []
+    } catch (error) {
+      console.error('Failed to fetch wardens:', error)
+      throw error
+    }
+  },
+
+  /**
+   * Create a new warden
+   * @param {Object} wardenData - Warden information
+   * @returns {Promise} - Created warden
+   */
+  create: async (wardenData) => {
+    try {
+      const payload = {
+        role: 'warden',
+        email: wardenData.email,
+        password: wardenData.password || 'TempPass123!', // Temporary password
+        firstName: wardenData.name.split(' ')[0],
+        lastName: wardenData.name.split(' ').slice(1).join(' ') || 'Warden',
+        phone: wardenData.phone,
+        hostelType: wardenData.hostelType,
+        block: wardenData.hostelBlock,
+        emergencyContact: {
+          name: 'To be updated',
+          phone: '0000000000',
+          relationship: 'To be updated'
+        }
+      }
+      
+      const response = await apiClient.post(API_ENDPOINTS.USERS, payload)
+      return response.data
+    } catch (error) {
+      console.error('Failed to create warden:', error)
+      throw error
+    }
+  },
+
+  /**
+   * Update warden information
+   * @param {String} id - Warden ID
+   * @param {Object} updates - Updated fields
+   * @returns {Promise} - Updated warden
+   */
+  update: async (id, updates) => {
+    try {
+      const payload = {}
+      
+      // Map frontend fields to backend fields
+      if (updates.name) {
+        payload.firstName = updates.name.split(' ')[0]
+        payload.lastName = updates.name.split(' ').slice(1).join(' ') || 'Warden'
+      }
+      if (updates.email) payload.email = updates.email
+      if (updates.phone) payload.phone = updates.phone
+      if (updates.status) payload.status = updates.status
+      
+      const response = await apiClient.patch(`${API_ENDPOINTS.USERS}/warden/${id}`, payload)
+      return response.data
+    } catch (error) {
+      console.error('Failed to update warden:', error)
+      throw error
+    }
+  },
+
+  /**
+   * Delete a warden
+   * @param {String} id - Warden ID
+   * @returns {Promise}
+   */
+  delete: async (id) => {
+    try {
+      const response = await apiClient.delete(`${API_ENDPOINTS.USERS}/warden/${id}`)
+      return response.data
+    } catch (error) {
+      console.error('Failed to delete warden:', error)
+      throw error
+    }
+  },
+
+  /**
+   * Get warden by ID
+   * @param {String} id - Warden ID
+   * @returns {Promise} - Warden details
+   */
+  getById: async (id) => {
+    try {
+      const response = await apiClient.get(`${API_ENDPOINTS.USERS}/warden/${id}`)
+      return response.data?.data
+    } catch (error) {
+      console.error('Failed to fetch warden:', error)
+      throw error
+    }
+  },
+
+  /**
+   * Get wardens by hostel type
+   * @param {String} hostelType - 'boys' or 'girls'
+   * @returns {Promise} - List of wardens
+   */
+  getByHostelType: async (hostelType) => {
+    return wardenService.getWardens({ hostelType })
+  },
+
+  /**
+   * Get wardens by hostel block
+   * @param {String} hostelBlock - Block name (A, B, C, D)
+   * @returns {Promise} - List of wardens
+   */
+  getByHostelBlock: async (hostelBlock) => {
+    return wardenService.getWardens({ hostelBlock })
+  },
+
+  // ============ Warden Dashboard Operations ============
+  
   /**
    * Get warden dashboard statistics
    * @returns {Promise}

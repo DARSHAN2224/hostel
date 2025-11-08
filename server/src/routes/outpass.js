@@ -25,4 +25,31 @@ router.post('/hod/approve/:requestId', authMiddleware, outpassController.hodAppr
 // HOD dashboard: get pending outpass requests for department
 router.get('/hod/dashboard', authMiddleware, outpassController.getHodDashboard);
 
+// Get outpass history with filters (admin/warden)
+router.get('/history', authMiddleware, outpassController.getOutpassHistory);
+
+// Get outpass statistics for reports
+router.get('/statistics', authMiddleware, outpassController.getOutpassStatistics);
+
+// Record exit (security)
+router.post('/:requestId/exit', authMiddleware, outpassController.recordOutpassExit);
+
+// Record return (security)
+router.post('/:requestId/return', authMiddleware, outpassController.recordOutpassReturn);
+
+// Get outpass by ID
+router.get('/:requestId', authMiddleware, outpassController.getOutpassById);
+
+// Update outpass (student can update pending outpass)
+router.patch('/:requestId', authMiddleware, outpassController.updateOutpass);
+
+// Cancel outpass
+router.delete('/:requestId/cancel', authMiddleware, outpassController.cancelOutpass);
+
+// Bulk approve outpasses (warden/admin)
+router.post('/bulk/approve', authMiddleware, outpassController.bulkApproveOutpasses);
+
+// Bulk reject outpasses (warden/admin)
+router.post('/bulk/reject', authMiddleware, outpassController.bulkRejectOutpasses);
+
 export default router;

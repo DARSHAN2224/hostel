@@ -69,6 +69,13 @@ export const outpassService = {
   getWardenDashboard: async () => {
     return await apiClient.get(API_ENDPOINTS.OUTPASS_DASHBOARD)
   },
+  /**
+   * HOD dashboard data
+   * @returns {Promise}
+   */
+  getHodDashboard: async () => {
+    return await apiClient.get('/outpass/hod/dashboard')
+  },
 
   /**
    * HOD approve outpass
@@ -142,6 +149,26 @@ export const outpassService = {
    */
   getExpiring: async (hours = 24) => {
     return await apiClient.get(`/outpass/expiring?hours=${hours}`)
+  },
+
+  /**
+   * Bulk approve outpasses
+   * @param {Array<string>} outpassIds - Array of outpass IDs
+   * @param {string} comments - Optional comments
+   * @returns {Promise}
+   */
+  bulkApprove: async (outpassIds, comments = '') => {
+    return await apiClient.post('/outpass/bulk/approve', { outpassIds, comments })
+  },
+
+  /**
+   * Bulk reject outpasses
+   * @param {Array<string>} outpassIds - Array of outpass IDs
+   * @param {string} reason - Rejection reason
+   * @returns {Promise}
+   */
+  bulkReject: async (outpassIds, reason) => {
+    return await apiClient.post('/outpass/bulk/reject', { outpassIds, reason })
   }
 }
 
@@ -156,12 +183,15 @@ export const {
   getWardenDashboard,
   hodApprove,
   hodReject,
+  getHodDashboard,
   cancel: cancelOutpass,
   recordExit,
   recordReturn,
   getStatistics: getOutpassStatistics,
   getOverdue,
-  getExpiring
+  getExpiring,
+  bulkApprove,
+  bulkReject
 } = outpassService
 
 export default outpassService

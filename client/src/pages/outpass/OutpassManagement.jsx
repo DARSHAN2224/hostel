@@ -13,8 +13,7 @@ import {
   FunnelIcon,
   MagnifyingGlassIcon,
   CalendarIcon,
-  UserIcon,
-  ArrowPathIcon
+  UserIcon
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card from '../../components/ui/Card'

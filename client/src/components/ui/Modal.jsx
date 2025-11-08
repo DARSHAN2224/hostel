@@ -3,11 +3,15 @@
  * Reusable modal dialog with smooth animations
  */
 
-import { Fragment } from 'react'
-import { Dialog, Transition } from '@headlessui/react'
-import { motion as Motion, AnimatePresence } from 'framer-motion'
+import PropTypes from 'prop-types'
+import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react'
+import { motion as Motion } from 'framer-motion'
 import { XMarkIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import { cn } from '../../utils/helpers'
+
+// Create wrapper components to satisfy SonarLint while keeping Motion functionality
+const MotionDiv = Motion.div
+const MotionButton = Motion.button
 
 export default function Modal({
   isOpen,
@@ -27,11 +31,10 @@ export default function Modal({
   }
 
   return (
-    <Transition appear show={isOpen} as={Fragment}>
+    <Transition show={isOpen}>
       <Dialog as="div" className="relative z-50" onClose={onClose}>
         {/* Backdrop */}
-        <Transition.Child
-          as={Fragment}
+        <TransitionChild
           enter="ease-out duration-300"
           enterFrom="opacity-0"
           enterTo="opacity-100"
@@ -40,12 +43,11 @@ export default function Modal({
           leaveTo="opacity-0"
         >
           <div className="fixed inset-0 bg-slate-900/40 dark:bg-slate-900/60 backdrop-blur-sm" />
-        </Transition.Child>
+        </TransitionChild>
 
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4 text-center">
-            <Transition.Child
-              as={Fragment}
+            <TransitionChild
               enter="ease-out duration-300"
               enterFrom="opacity-0 scale-95"
               enterTo="opacity-100 scale-100"
@@ -53,7 +55,7 @@ export default function Modal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel 
+              <DialogPanel 
                 className={cn(
                   'w-full transform overflow-hidden rounded-2xl',
                   'bg-white/95 dark:bg-slate-800/95 backdrop-blur-2xl',
@@ -63,7 +65,7 @@ export default function Modal({
                 )}
               >
                 {title && (
-                  <Motion.div 
+                  <MotionDiv 
                     className={cn(
                       'flex items-center justify-between p-6',
                       gradient 
@@ -76,7 +78,7 @@ export default function Modal({
                   >
                     <div className="flex items-center gap-3">
                       {gradient && <SparklesIcon className="h-6 w-6 text-white" />}
-                      <Dialog.Title
+                      <DialogTitle
                         as="h3"
                         className={cn(
                           'text-xl font-display font-bold',
@@ -86,10 +88,10 @@ export default function Modal({
                         )}
                       >
                         {title}
-                      </Dialog.Title>
+                      </DialogTitle>
                     </div>
                     {showClose && (
-                      <Motion.button
+                      <MotionButton
                         type="button"
                         className={cn(
                           'rounded-xl p-2 transition-colors duration-200',
@@ -102,20 +104,20 @@ export default function Modal({
                         whileTap={{ scale: 0.9 }}
                       >
                         <XMarkIcon className="h-6 w-6" />
-                      </Motion.button>
+                      </MotionButton>
                     )}
-                  </Motion.div>
+                  </MotionDiv>
                 )}
-                <Motion.div 
+                <MotionDiv 
                   className="p-6"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3, delay: 0.1 }}
                 >
                   {children}
-                </Motion.div>
-              </Dialog.Panel>
-            </Transition.Child>
+                </MotionDiv>
+              </DialogPanel>
+            </TransitionChild>
           </div>
         </div>
       </Dialog>
@@ -123,9 +125,19 @@ export default function Modal({
   )
 }
 
+Modal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  title: PropTypes.string,
+  children: PropTypes.node,
+  size: PropTypes.oneOf(['sm', 'md', 'lg', 'xl', 'full']),
+  showClose: PropTypes.bool,
+  gradient: PropTypes.bool,
+}
+
 export function ModalFooter({ children, className = '' }) {
   return (
-    <Motion.div 
+    <MotionDiv 
       className={cn(
         'mt-6 pt-4 border-t border-slate-200 dark:border-slate-700',
         'flex items-center justify-end gap-3',
@@ -136,6 +148,11 @@ export function ModalFooter({ children, className = '' }) {
       transition={{ duration: 0.3, delay: 0.2 }}
     >
       {children}
-    </Motion.div>
+    </MotionDiv>
   )
+}
+
+ModalFooter.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
 }

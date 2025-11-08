@@ -9,11 +9,9 @@ import {
   QrCodeIcon,
   MagnifyingGlassIcon,
   CheckCircleIcon,
-  XCircleIcon,
   ClockIcon,
-  ArrowRightOnRectangleIcon,
-  ArrowLeftOnRectangleIcon,
-  UserIcon,
+  ArrowRightEndOnRectangleIcon,
+  ArrowLeftStartOnRectangleIcon,
   CalendarDaysIcon,
   SparklesIcon,
   ShieldCheckIcon,
@@ -27,8 +25,11 @@ import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
-import { OUTPASS_STATUS } from '../../constants'
 import { formatDateTime } from '../../utils/helpers'
+import securityService from '../../services/securityService'
+import outpassService from '../../services/outpassService'
+import toast from 'react-hot-toast'
+import { Scanner } from '@yudiel/react-qr-scanner'
 
 export default function SecurityDashboard() {
   const [loading, setLoading] = useState(true)
@@ -43,41 +44,45 @@ export default function SecurityDashboard() {
   const [selectedOutpass, setSelectedOutpass] = useState(null)
   const [showVerifyModal, setShowVerifyModal] = useState(false)
   const [actionType, setActionType] = useState('exit') // 'exit' or 'return'
+  const [manualCode, setManualCode] = useState('')
+  // QR scanning state is managed by the component; no explicit local state needed
 
   const fetchSecurityData = useCallback(async () => {
     try {
       setLoading(true)
-      // TODO: Implement API calls
-      // Simulated data
-      setTimeout(() => {
-        setStats({
-          activeOutpasses: 45,
-          exitedToday: 123,
-          returnedToday: 98,
-          overdueOutpasses: 5
-        })
-        setActiveOutpasses([
-          {
-            _id: '1',
-            student: {
-              firstName: 'John',
-              lastName: 'Doe',
-              registerNumber: 'CS2021001',
-              hostelBlock: 'A'
-            },
-            reason: 'Home visit',
-            destination: 'Chennai',
-            departureDateTime: new Date().toISOString(),
-            returnDateTime: new Date(Date.now() + 86400000).toISOString(),
-            status: OUTPASS_STATUS.APPROVED,
-            exitTime: null,
-            returnTime: null
-          }
-        ])
-        setLoading(false)
-      }, 1000)
+      
+      // Fetch active outpasses
+      const response = await securityService.getActiveOutpasses()
+      const outpasses = response?.data?.data || response?.data?.outpasses || []
+      
+      // Calculate stats from the data
+      const now = new Date()
+      const todayStart = new Date(now.setHours(0, 0, 0, 0))
+      
+      const exitedToday = outpasses.filter(o => 
+        o.exitTime && new Date(o.exitTime) >= todayStart
+      ).length
+      
+      const returnedToday = outpasses.filter(o => 
+        o.returnTime && new Date(o.returnTime) >= todayStart
+      ).length
+      
+      const overdueOutpasses = outpasses.filter(o => 
+        !o.returnTime && new Date(o.returnDateTime) < now
+      ).length
+      
+      setStats({
+        activeOutpasses: outpasses.filter(o => !o.returnTime).length,
+        exitedToday,
+        returnedToday,
+        overdueOutpasses
+      })
+      
+      setActiveOutpasses(outpasses)
+      setLoading(false)
     } catch (error) {
       console.error('Failed to fetch security data:', error)
+      toast.error('Failed to load security data')
       setLoading(false)
     }
   }, [])
@@ -95,17 +100,57 @@ export default function SecurityDashboard() {
     )
   })
 
+  const resolveOutpassFromCode = (code) => {
+    try {
+      let payload = code
+      if (typeof code === 'string' && code.trim().startsWith('{')) {
+        payload = JSON.parse(code)
+      }
+      const outpassId = typeof payload === 'string' ? payload : payload?.outpassId
+      if (!outpassId) return null
+      return activeOutpasses.find(o => o._id === outpassId) || null
+    } catch {
+      return null
+    }
+  }
+
+  const handleScanResult = (result) => {
+    if (!result) return
+    const text = Array.isArray(result) ? result[0]?.rawValue || result[0]?.text : result.rawValue || result.text || String(result)
+    const found = resolveOutpassFromCode(text)
+    if (found) {
+      setSelectedOutpass(found)
+      setActionType(!found.exitTime ? 'exit' : 'return')
+      setShowVerifyModal(true)
+      toast.success('QR recognized')
+    } else {
+      toast.error('QR not recognized for any active outpass')
+    }
+  }
+
   const handleVerifyAction = (outpass, type) => {
     setSelectedOutpass(outpass)
     setActionType(type)
     setShowVerifyModal(true)
   }
 
-  const handleConfirmAction = () => {
-    // TODO: Implement exit/return recording
-    console.log(`Recording ${actionType} for outpass:`, selectedOutpass)
-    setShowVerifyModal(false)
-    setSelectedOutpass(null)
+  const handleConfirmAction = async () => {
+    try {
+      if (actionType === 'exit') {
+        await outpassService.recordExit(selectedOutpass._id)
+        toast.success(`Exit recorded for ${selectedOutpass.student.firstName} ${selectedOutpass.student.lastName}`)
+      } else {
+        await outpassService.recordReturn(selectedOutpass._id)
+        toast.success(`Return recorded for ${selectedOutpass.student.firstName} ${selectedOutpass.student.lastName}`)
+      }
+      
+      setShowVerifyModal(false)
+      setSelectedOutpass(null)
+      fetchSecurityData() // Refresh the data
+    } catch (error) {
+      console.error(`Failed to record ${actionType}:`, error)
+      toast.error(error.message || error?.response?.data?.message || `Failed to record ${actionType}`)
+    }
   }
 
   const statCards = [
@@ -119,14 +164,14 @@ export default function SecurityDashboard() {
     {
       title: 'Exited Today',
       value: stats.exitedToday,
-      icon: ArrowRightOnRectangleIcon,
+      icon: ArrowRightEndOnRectangleIcon,
       gradient: 'from-orange-500 to-red-500',
       bgColor: 'bg-orange-50 dark:bg-orange-900/20'
     },
     {
       title: 'Returned Today',
       value: stats.returnedToday,
-      icon: ArrowLeftOnRectangleIcon,
+      icon: ArrowLeftStartOnRectangleIcon,
       gradient: 'from-green-500 to-emerald-500',
       bgColor: 'bg-green-50 dark:bg-green-900/20'
     },
@@ -217,28 +262,42 @@ export default function SecurityDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-3">
                   <Input
-                    placeholder="Scan QR Code or Enter Student ID..."
+                    placeholder="Scan QR or paste code / outpass id..."
                     icon={QrCodeIcon}
                     glassmorphic
+                    value={manualCode}
+                    onChange={(e)=>setManualCode(e.target.value)}
                   />
                   <div className="flex gap-3">
-                    <Button variant="success" icon={ArrowRightOnRectangleIcon} className="flex-1">
+                    <Button variant="outline" onClick={()=>{
+                      const found = resolveOutpassFromCode(manualCode)
+                      if(found){ setSelectedOutpass(found); setActionType(!found.exitTime? 'exit':'return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                    }} className="flex-1">
+                      Verify Code
+                    </Button>
+                    <Button variant="success" icon={ArrowRightEndOnRectangleIcon} onClick={()=>{
+                      const found = resolveOutpassFromCode(manualCode)
+                      if(found){ setSelectedOutpass(found); setActionType('exit'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                    }} className="flex-1">
                       Record Exit
                     </Button>
-                    <Button variant="primary" icon={ArrowLeftOnRectangleIcon} className="flex-1">
+                    <Button variant="primary" icon={ArrowLeftStartOnRectangleIcon} onClick={()=>{
+                      const found = resolveOutpassFromCode(manualCode)
+                      if(found){ setSelectedOutpass(found); setActionType('return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                    }} className="flex-1">
                       Record Return
                     </Button>
                   </div>
                 </div>
-                <div className="flex items-center justify-center p-6 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-xl border-2 border-dashed border-orange-300 dark:border-orange-700">
-                  <div className="text-center">
-                    <QrCodeIcon className="h-16 w-16 mx-auto mb-3 text-orange-500" />
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      Scan QR Code
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      or enter student ID manually
-                    </p>
+                <div className="p-2 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-xl border-2 border-dashed border-orange-300 dark:border-orange-700">
+                  <div className="text-center mb-2 text-sm text-slate-700 dark:text-slate-300">Scan QR Code</div>
+                  <div className="rounded-xl overflow-hidden">
+                    <Scanner
+                      onScan={(result) => handleScanResult(result)}
+                      onError={(error) => console.error(error)}
+                      components={{ finder: true, torch: true, onOff: true, zoom: true }}
+                      scanDelay={200}
+                    />
                   </div>
                 </div>
               </div>
@@ -333,7 +392,7 @@ export default function SecurityDashboard() {
                           {!outpass.exitTime ? (
                             <Button
                               variant="success"
-                              icon={ArrowRightOnRectangleIcon}
+                              icon={ArrowRightEndOnRectangleIcon}
                               onClick={() => handleVerifyAction(outpass, 'exit')}
                             >
                               Mark Exit
@@ -341,7 +400,7 @@ export default function SecurityDashboard() {
                           ) : !outpass.returnTime ? (
                             <Button
                               variant="primary"
-                              icon={ArrowLeftOnRectangleIcon}
+                              icon={ArrowLeftStartOnRectangleIcon}
                               onClick={() => handleVerifyAction(outpass, 'return')}
                             >
                               Mark Return
@@ -428,7 +487,7 @@ export default function SecurityDashboard() {
                 </Button>
                 <Button
                   variant={actionType === 'exit' ? 'success' : 'primary'}
-                  icon={actionType === 'exit' ? ArrowRightOnRectangleIcon : ArrowLeftOnRectangleIcon}
+                  icon={actionType === 'exit' ? ArrowRightEndOnRectangleIcon : ArrowLeftStartOnRectangleIcon}
                   onClick={handleConfirmAction}
                   className="flex-1"
                 >

@@ -1,24 +1,34 @@
 import { motion as Motion } from 'framer-motion'
 import { Link, useLocation } from 'react-router-dom'
+import { useSelector } from 'react-redux'
+import PropTypes from 'prop-types'
 import { 
   HomeIcon, 
   UserGroupIcon, 
   DocumentTextIcon,
   ChartBarIcon,
   Cog6ToothIcon,
-  ArrowRightOnRectangleIcon,
+  ArrowRightEndOnRectangleIcon,
   SparklesIcon,
   ClockIcon,
-  UserCircleIcon
+  UserCircleIcon,
+  ShieldCheckIcon,
+  AcademicCapIcon
 } from '@heroicons/react/24/outline'
 import { ROUTES } from '../../constants'
+import { selectUser } from '../../store/authSlice'
 
-const navigation = [
+const baseNavigation = [
   { name: 'Dashboard', href: ROUTES.DASHBOARD, icon: HomeIcon, gradient: 'from-blue-500 to-cyan-500' },
   { name: 'Students', href: ROUTES.STUDENTS, icon: UserGroupIcon, gradient: 'from-green-500 to-emerald-500' },
   { name: 'Outpass Requests', href: ROUTES.OUTPASS_REQUESTS, icon: DocumentTextIcon, gradient: 'from-purple-500 to-pink-500' },
   { name: 'History', href: ROUTES.OUTPASS_HISTORY, icon: ClockIcon, gradient: 'from-orange-500 to-red-500' },
   { name: 'Reports', href: ROUTES.REPORTS, icon: ChartBarIcon, gradient: 'from-indigo-500 to-purple-500' },
+]
+
+const adminOnlyNavigation = [
+  { name: 'Wardens', href: '/wardens', icon: ShieldCheckIcon, gradient: 'from-amber-500 to-yellow-500' },
+  { name: 'HODs', href: '/hods', icon: AcademicCapIcon, gradient: 'from-teal-500 to-cyan-500' },
 ]
 
 const bottomNavigation = [
@@ -28,6 +38,13 @@ const bottomNavigation = [
 
 export default function Sidebar({ onLogout, mobile }) {
   const location = useLocation()
+  const user = useSelector(selectUser)
+  const isAdmin = user?.role === 'admin'
+  
+  // Combine navigation based on user role
+  const navigation = isAdmin 
+    ? [...baseNavigation.slice(0, 2), ...adminOnlyNavigation, ...baseNavigation.slice(2)]
+    : baseNavigation
 
   const sidebarVariants = {
     hidden: { x: -300, opacity: 0 },
@@ -113,7 +130,7 @@ export default function Sidebar({ onLogout, mobile }) {
                       {isActive && (
                         <div className={`absolute inset-0 bg-gradient-to-r ${item.gradient} rounded-lg blur-md opacity-50`}></div>
                       )}
-                      <Icon className={`relative h-5 w-5 ${isActive ? `bg-gradient-to-r ${item.gradient} text-transparent bg-clip-text` : ''}`} />
+                      <Icon className={isActive ? `relative h-5 w-5 bg-gradient-to-r ${item.gradient} text-transparent bg-clip-text` : 'relative h-5 w-5'} />
                     </div>
                     <span className={`font-medium text-sm ${isActive ? 'font-semibold' : ''}`}>
                       {item.name}
@@ -164,7 +181,7 @@ export default function Sidebar({ onLogout, mobile }) {
             whileTap={{ scale: 0.98 }}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-200"
           >
-            <ArrowRightOnRectangleIcon className="h-5 w-5" />
+            <ArrowRightEndOnRectangleIcon className="h-5 w-5" />
             <span>Logout</span>
           </Motion.button>
         </div>
@@ -174,4 +191,9 @@ export default function Sidebar({ onLogout, mobile }) {
       </div>
     </Motion.aside>
   )
+}
+
+Sidebar.propTypes = {
+  onLogout: PropTypes.func.isRequired,
+  mobile: PropTypes.bool,
 }

@@ -79,12 +79,12 @@ export const getCurrentUser = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk(
   'auth/logout',
-  async () => {
+  async (_, { rejectWithValue }) => {
     try {
       await authService.logout()
-      return null
-    } catch {
-      return null
+      return { success: true }
+    } catch (error) {
+      return rejectWithValue(error?.response?.data?.error || 'Logout failed')
     }
   }
 )
@@ -113,6 +113,11 @@ const authSlice = createSlice({
       state.isAuthenticated = true
       // Store user data in localStorage
       localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user))
+    },
+    setUser: (state, action) => {
+      state.user = action.payload
+      // Update localStorage
+      localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(action.payload))
     }
   },
   extraReducers: (builder) => {
@@ -188,7 +193,7 @@ const authSlice = createSlice({
   }
 })
 
-export const { clearError, logout, setCredentials } = authSlice.actions
+export const { clearError, logout, setCredentials, setUser } = authSlice.actions
 
 // Selectors
 export const selectUser = (state) => state.auth.user

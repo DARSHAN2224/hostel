@@ -1,7 +1,10 @@
+/* eslint-env node */
+/* global process */
 import express from 'express'
 import dotenv from 'dotenv'
-import morgan from 'morgan'
 import swaggerUi from 'swagger-ui-express'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { config, validateConfig, logEnvironmentInfo } from './config/config.js'
 import { connectDatabase, setupGracefulShutdown } from './db/database.js'
 import { helmetConfig, corsConfig, additionalSecurityHeaders, trustProxy } from './config/security.js'
@@ -15,11 +18,21 @@ import authRoutes from './routes/auth.js'
 import studentRoutes from './routes/students.js'
 import usersRoutes from './routes/users.js'
 import healthRoutes from './routes/health.js'
-import hodRoutes from './routes/hods.js';
-import outpassRoutes from './routes/outpass.js';
+import hodRoutes from './routes/hods.js'
+import outpassRoutes from './routes/outpass.js'
+import violationRoutes from './routes/violations.js'
+import auditLogRoutes from './routes/auditLogs.js'
+import wardenRoutes from './routes/wardens.js'
+import securityRoutes from './routes/security.js'
+import notificationRoutes from './routes/notifications.js'
+import parentRoutes from './routes/parents.js'
+import reportRoutes from './routes/reports.js'
 
 // Load environment variables
 dotenv.config()
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 export function createApp() {
   const app = express()
@@ -41,6 +54,9 @@ export function createApp() {
   
   // Additional security headers
   app.use(additionalSecurityHeaders)
+
+  // Serve static files from uploads directory
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 
   // Parse JSON and cookies (before logging to capture body)
   app.use(express.json({ limit: '10mb' }))
@@ -81,8 +97,15 @@ export function createApp() {
   app.use('/api/v1/auth', authRoutes)
   app.use('/api/v1/students', studentRoutes)
   app.use('/api/v1/users', usersRoutes)
-  app.use('/api/v1/outpass', outpassRoutes);
-  app.use('/api/v1/hods', hodRoutes);
+  app.use('/api/v1/outpass', outpassRoutes)
+  app.use('/api/v1/hods', hodRoutes)
+  app.use('/api/v1/violations', violationRoutes)
+  app.use('/api/v1/audit-logs', auditLogRoutes)
+  app.use('/api/v1/wardens', wardenRoutes)
+  app.use('/api/v1/security', securityRoutes)
+  app.use('/api/v1/notifications', notificationRoutes)
+  app.use('/api/v1/parents', parentRoutes)
+  app.use('/api/v1/reports', reportRoutes)
 
   // Handle 404 for undefined routes
   app.use(notFoundHandler)

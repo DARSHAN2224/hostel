@@ -1,31 +1,23 @@
 import { motion as Motion, AnimatePresence } from 'framer-motion'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
+import PropTypes from 'prop-types'
 import Sidebar from '../components/layout/Sidebar'
 import Header from '../components/layout/Header'
+import NotificationBell from '../components/NotificationBell'
 import { logoutUser, selectUser } from '../store/authSlice'
 import { ROUTES, STORAGE_KEYS } from '../constants'
+import { useTheme } from '../hooks/useTheme'
 import toast from 'react-hot-toast'
 
 export default function DashboardLayout({ children }) {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const user = useSelector(selectUser)
+  const { theme, setTheme } = useTheme()
   
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [theme, setTheme] = useState(
-    localStorage.getItem(STORAGE_KEYS.THEME) || 'light'
-  )
-
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-    localStorage.setItem(STORAGE_KEYS.THEME, theme)
-  }, [theme])
 
   const toggleTheme = () => {
     setTheme(theme === 'light' ? 'dark' : 'light')
@@ -114,6 +106,7 @@ export default function DashboardLayout({ children }) {
           toggleSidebar={toggleSidebar}
           theme={theme}
           toggleTheme={toggleTheme}
+          notificationBell={<NotificationBell />}
         />
         
         <Motion.main 
@@ -129,4 +122,8 @@ export default function DashboardLayout({ children }) {
       </div>
     </div>
   )
+}
+
+DashboardLayout.propTypes = {
+  children: PropTypes.node.isRequired,
 }

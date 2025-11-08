@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
-import { UnauthorizedError, ForbiddenError } from '../utils/customErrors.js'
+import { UnauthorizedError } from '../utils/customErrors.js'
 
 /**
  * Auth middleware to verify JWT tokens from cookies or Authorization header
@@ -86,7 +86,7 @@ export const optionalAuth = (req, res, next) => {
     }
 
     next()
-  } catch (error) {
+  } catch {
     // Continue without user if token is invalid
     next()
   }

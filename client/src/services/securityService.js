@@ -6,98 +6,127 @@ import apiClient from './api'
 
 export const securityService = {
   /**
-   * Get security dashboard data
+   * Get security dashboard statistics
    * @returns {Promise}
    */
-  getDashboardData: async () => {
-    return await apiClient.get('/security/dashboard')
+  getDashboardStats: async () => {
+    return await apiClient.get('/security/dashboard/stats')
   },
 
   /**
-   * Get active outpasses
+   * Get active outpasses (approved and ready for gate verification)
+   * @param {Object} filters - search, limit, skip
    * @returns {Promise}
    */
-  getActiveOutpasses: async () => {
-    return await apiClient.get('/outpass/warden/all', {
-      params: { status: 'approved' }
-    })
+  getActiveOutpasses: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.search) params.append('search', filters.search)
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+    
+    return await apiClient.get(`/security/active-outpasses?${params.toString()}`)
   },
 
   /**
-   * Verify outpass by QR code
-   * @param {string} qrCode
+   * Verify outpass by QR code or manual code
+   * @param {string} code - QR code or outpass ID
    * @returns {Promise}
    */
-  verifyByQR: async (qrCode) => {
-    return await apiClient.post('/security/verify-qr', { qrCode })
-  },
-
-  /**
-   * Verify outpass by student ID
-   * @param {string} studentId
-   * @returns {Promise}
-   */
-  verifyByStudentId: async (studentId) => {
-    return await apiClient.get(`/students/by-student-id/${studentId}`)
+  verifyOutpass: async (code) => {
+    return await apiClient.post('/security/verify-outpass', { code })
   },
 
   /**
    * Record student exit
    * @param {string} outpassId
-   * @param {Object} data
+   * @param {Object} data - { remarks }
    * @returns {Promise}
    */
   recordExit: async (outpassId, data = {}) => {
-    return await apiClient.post(`/security/exit/${outpassId}`, data)
+    return await apiClient.post(`/security/record-exit/${outpassId}`, data)
   },
 
   /**
    * Record student return
    * @param {string} outpassId
-   * @param {Object} data
+   * @param {Object} data - { remarks }
    * @returns {Promise}
    */
   recordReturn: async (outpassId, data = {}) => {
-    return await apiClient.post(`/security/return/${outpassId}`, data)
+    return await apiClient.post(`/security/record-return/${outpassId}`, data)
   },
 
   /**
-   * Get today's gate statistics
+   * Get students currently out
+   * @param {Object} filters - limit, skip
    * @returns {Promise}
    */
+  getStudentsOut: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+    
+    return await apiClient.get(`/security/students-out?${params.toString()}`)
+  },
+
+  /**
+   * Get recent gate activity (exits/returns)
+   * @param {Object} filters - limit, skip, hours
+   * @returns {Promise}
+   */
+  getRecentActivity: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+    if (filters.hours) params.append('hours', filters.hours)
+    
+    return await apiClient.get(`/security/recent-activity?${params.toString()}`)
+  },
+
+  /**
+   * Get overdue returns (students who haven't returned on time)
+   * @param {Object} filters - limit, skip
+   * @returns {Promise}
+   */
+  getOverdueReturns: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+    
+    return await apiClient.get(`/security/overdue-returns?${params.toString()}`)
+  },
+
+  // Legacy methods for backward compatibility
+  getDashboardData: async () => {
+    return await apiClient.get('/security/dashboard/stats')
+  },
+
+  verifyByQR: async (qrCode) => {
+    return await apiClient.post('/security/verify-outpass', { code: qrCode })
+  },
+
   getTodayStats: async () => {
-    return await apiClient.get('/security/stats/today')
+    return await apiClient.get('/security/dashboard/stats')
   },
 
-  /**
-   * Get overdue students
-   * @returns {Promise}
-   */
   getOverdueStudents: async () => {
-    return await apiClient.get('/security/overdue')
-  },
-
-  /**
-   * Report violation
-   * @param {string} outpassId
-   * @param {Object} violationData
-   * @returns {Promise}
-   */
-  reportViolation: async (outpassId, violationData) => {
-    return await apiClient.post(`/security/violation/${outpassId}`, violationData)
+    return await apiClient.get('/security/overdue-returns')
   }
 }
 
 export const {
-  getDashboardData,
+  getDashboardStats,
   getActiveOutpasses,
-  verifyByQR,
-  verifyByStudentId,
+  verifyOutpass,
   recordExit,
   recordReturn,
+  getStudentsOut,
+  getRecentActivity,
+  getOverdueReturns,
+  getDashboardData,
+  verifyByQR,
   getTodayStats,
-  getOverdueStudents,
-  reportViolation
+  getOverdueStudents
 } = securityService
 
 export default securityService

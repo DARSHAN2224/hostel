@@ -2,7 +2,6 @@
 import OutpassRequest from '../models/OutpassRequest.js';
 import Student from '../models/Student.js';
 import Hod from '../models/Hod.js';
-import { AppError } from '../middleware/errorHandler.js';
 
 
 const outpassController = {
@@ -127,11 +126,27 @@ const outpassController = {
   // Warden: Get all outpass requests
   async getWardenOutpasses(req, res) {
     try {
-      if (req.user.role !== 'warden') {
-        return res.status(403).json({ message: 'Access denied' });
+      // Allow warden, admin, and hod to view outpasses
+      if (!['warden', 'admin', 'hod'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Only warden, admin, or HOD can view outpasses.' });
       }
-      const outpasses = await OutpassRequest.find({ warden: req.user._id })
+      
+      // Build query based on role
+      let query = {};
+      if (req.user.role === 'warden') {
+        query.warden = req.user._id;
+      }
+      // Admin and HOD can see all outpasses
+      
+      // Add status filter if provided
+      if (req.query.status && req.query.status !== 'all') {
+        query.status = req.query.status;
+      }
+      
+      const outpasses = await OutpassRequest.find(query)
         .populate('student', 'firstName lastName rollNumber email department')
+        .populate('warden', 'firstName lastName email')
+        .populate('hod', 'firstName lastName email')
         .sort({ createdAt: -1 });
       res.json({ outpasses, count: outpasses.length });
     } catch (err) {
@@ -142,8 +157,9 @@ const outpassController = {
   // Warden: Approve outpass request
   async wardenApproveOutpass(req, res) {
     try {
-      if (req.user.role !== 'warden') {
-        return res.status(403).json({ message: 'Access denied' });
+      // Allow warden and admin to approve
+      if (!['warden', 'admin'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Only warden or admin can approve outpasses.' });
       }
       const { requestId } = req.params;
       const { comments } = req.body;
@@ -157,11 +173,11 @@ const outpassController = {
         comments
       };
       
-      // If HOD approval is not requested, mark as approved
-      if (!outpass.hodApprovalRequested) {
-        outpass.status = 'approved';
-      } else {
+      // If HOD approval is requested, mark as approved_by_warden, else mark as approved
+      if (outpass.hodApprovalRequested) {
         outpass.status = 'approved_by_warden';
+      } else {
+        outpass.status = 'approved';
       }
       
       await outpass.save();
@@ -174,8 +190,9 @@ const outpassController = {
   // Warden: Reject outpass request
   async wardenRejectOutpass(req, res) {
     try {
-      if (req.user.role !== 'warden') {
-        return res.status(403).json({ message: 'Access denied' });
+      // Allow warden and admin to reject
+      if (!['warden', 'admin'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Only warden or admin can reject outpasses.' });
       }
       const { requestId } = req.params;
       const { reason } = req.body;
@@ -190,6 +207,307 @@ const outpassController = {
       
       await outpass.save();
       res.json({ message: 'Outpass rejected by warden', outpass });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Get outpass history with filters (accessible by admin/warden)
+  async getOutpassHistory(req, res) {
+    try {
+      const { status, search, limit = 100, sort = '-createdAt' } = req.query;
+      const query = {};
+      if (status && status !== 'all') {
+        query.status = status;
+      }
+      if (search) {
+        query.$or = [
+          { rollNumber: { $regex: search, $options: 'i' } },
+          { studentId: { $regex: search, $options: 'i' } },
+          { reason: { $regex: search, $options: 'i' } }
+        ];
+      }
+      const outpasses = await OutpassRequest.find(query)
+        .populate('student', 'firstName lastName rollNumber email')
+        .limit(Number.parseInt(limit))
+        .sort(sort);
+      res.json({ outpasses, count: outpasses.length });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Get outpass statistics for reports
+  async getOutpassStatistics(req, res) {
+    try {
+      const { startDate, endDate } = req.query;
+      const dateRange = {};
+      if (startDate && endDate) {
+        dateRange.startDate = new Date(startDate);
+        dateRange.endDate = new Date(endDate);
+      }
+      const stats = await OutpassRequest.getStats(dateRange);
+      // Transform aggregated stats into a simpler object
+      let totalRequests = 0;
+      let approved = 0;
+      let rejected = 0;
+      let pending = 0;
+      for (const s of stats) {
+        totalRequests += s.count;
+        if (s._id === 'approved' || s._id === 'approved_by_warden' || s._id === 'approved_by_hod') {
+          approved += s.count;
+        } else if (s._id === 'rejected' || s._id === 'rejected_by_hod') {
+          rejected += s.count;
+        } else if (s._id === 'pending') {
+          pending += s.count;
+        }
+      }
+      // Find the most common reason
+      const reasonAgg = await OutpassRequest.aggregate([
+        ...(dateRange.startDate && dateRange.endDate ? [{ $match: { createdAt: { $gte: dateRange.startDate, $lte: dateRange.endDate } } }] : []),
+        { $group: { _id: '$outpassType', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 1 }
+      ]);
+      const topReason = reasonAgg.length > 0 ? reasonAgg[0]._id : 'N/A';
+      // Calculate average processing time (mock for now)
+      const avgProcessingTime = '2.3h';
+      res.json({
+        data: {
+          totalRequests,
+          approved,
+          rejected,
+          pending,
+          avgProcessingTime,
+          topReason
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Record exit (security)
+  async recordOutpassExit(req, res) {
+    try {
+      const { requestId } = req.params;
+      const outpass = await OutpassRequest.findById(requestId);
+      if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
+      if (outpass.status !== 'approved' && outpass.status !== 'approved_by_hod') {
+        return res.status(400).json({ message: 'Outpass not approved for exit' });
+      }
+      await outpass.recordExit(req.user.id);
+      res.json({ message: 'Exit recorded successfully', outpass });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Record return (security)
+  async recordOutpassReturn(req, res) {
+    try {
+      const { requestId } = req.params;
+      const outpass = await OutpassRequest.findById(requestId);
+      if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
+      if (outpass.status !== 'out') {
+        return res.status(400).json({ message: 'Student has not exited yet' });
+      }
+      await outpass.recordReturn(req.user.id);
+      res.json({ message: 'Return recorded successfully', outpass });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Get outpass by ID
+  async getOutpassById(req, res) {
+    try {
+      const { requestId } = req.params;
+      const outpass = await OutpassRequest.findById(requestId)
+        .populate('student', 'firstName lastName rollNumber email phoneNumber hostelBlock profilePicture')
+        .populate('wardenApprovedBy', 'firstName lastName')
+        .populate('hodApprovedBy', 'firstName lastName');
+
+      if (!outpass) {
+        return res.status(404).json({ message: 'Outpass request not found' });
+      }
+
+      // Check authorization
+      if (req.user.role === 'student' && outpass.student._id.toString() !== req.user.id) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+
+      res.json({ outpass });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Update outpass (only for pending/draft status)
+  async updateOutpass(req, res) {
+    try {
+      const { requestId } = req.params;
+      const updates = req.body;
+
+      const outpass = await OutpassRequest.findById(requestId);
+      if (!outpass) {
+        return res.status(404).json({ message: 'Outpass request not found' });
+      }
+
+      // Only student can update their own outpass
+      if (req.user.role === 'student' && outpass.student.toString() !== req.user.id) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+
+      // Can only update if status is pending
+      if (outpass.status !== 'pending') {
+        return res.status(400).json({ message: 'Cannot update outpass after approval/rejection' });
+      }
+
+      // Update allowed fields
+      const allowedFields = ['outpassType', 'reason', 'destination', 'fromDate', 'toDate', 'contactNumber', 'parentContact'];
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          outpass[field] = updates[field];
+        }
+      }
+
+      await outpass.save();
+      res.json({ message: 'Outpass updated successfully', outpass });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Delete/Cancel outpass
+  async cancelOutpass(req, res) {
+    try {
+      const { requestId } = req.params;
+      const { reason } = req.body;
+
+      const outpass = await OutpassRequest.findById(requestId);
+      if (!outpass) {
+        return res.status(404).json({ message: 'Outpass request not found' });
+      }
+
+      // Check authorization
+      if (req.user.role === 'student' && outpass.student.toString() !== req.user.id) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+
+      // Can only cancel if not completed or if not exited
+      if (outpass.exitTime) {
+        return res.status(400).json({ message: 'Cannot cancel outpass after exit has been recorded' });
+      }
+
+      outpass.status = 'cancelled';
+      outpass.cancellationReason = reason || 'Cancelled by student';
+      outpass.cancelledAt = new Date();
+      outpass.cancelledBy = req.user.id;
+
+      await outpass.save();
+      res.json({ message: 'Outpass cancelled successfully', outpass });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Bulk approve outpasses (for warden/admin)
+  async bulkApproveOutpasses(req, res) {
+    try {
+      const { outpassIds } = req.body;
+
+      if (!outpassIds || !Array.isArray(outpassIds) || outpassIds.length === 0) {
+        return res.status(400).json({ message: 'Outpass IDs array is required' });
+      }
+
+      const results = {
+        approved: [],
+        failed: []
+      };
+
+      for (const id of outpassIds) {
+        try {
+          const outpass = await OutpassRequest.findById(id);
+          if (!outpass) {
+            results.failed.push({ id, reason: 'Not found' });
+            continue;
+          }
+
+          if (outpass.wardenApprovalStatus !== 'pending') {
+            results.failed.push({ id, reason: 'Already processed' });
+            continue;
+          }
+
+          outpass.wardenApprovalStatus = 'approved';
+          outpass.wardenApprovalDate = new Date();
+          outpass.wardenApprovedBy = req.user.id;
+          outpass.status = 'approved_by_warden';
+
+          await outpass.save();
+          results.approved.push(id);
+        } catch (error) {
+          results.failed.push({ id, reason: error.message });
+        }
+      }
+
+      res.json({
+        message: `Bulk approval completed: ${results.approved.length} approved, ${results.failed.length} failed`,
+        results
+      });
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Bulk reject outpasses (for warden/admin)
+  async bulkRejectOutpasses(req, res) {
+    try {
+      const { outpassIds, reason } = req.body;
+
+      if (!outpassIds || !Array.isArray(outpassIds) || outpassIds.length === 0) {
+        return res.status(400).json({ message: 'Outpass IDs array is required' });
+      }
+
+      if (!reason) {
+        return res.status(400).json({ message: 'Rejection reason is required' });
+      }
+
+      const results = {
+        rejected: [],
+        failed: []
+      };
+
+      for (const id of outpassIds) {
+        try {
+          const outpass = await OutpassRequest.findById(id);
+          if (!outpass) {
+            results.failed.push({ id, reason: 'Not found' });
+            continue;
+          }
+
+          if (outpass.wardenApprovalStatus !== 'pending') {
+            results.failed.push({ id, reason: 'Already processed' });
+            continue;
+          }
+
+          outpass.wardenApprovalStatus = 'rejected';
+          outpass.wardenApprovalDate = new Date();
+          outpass.wardenApprovedBy = req.user.id;
+          outpass.wardenRejectionReason = reason;
+          outpass.status = 'rejected';
+
+          await outpass.save();
+          results.rejected.push(id);
+        } catch (error) {
+          results.failed.push({ id, reason: error.message });
+        }
+      }
+
+      res.json({
+        message: `Bulk rejection completed: ${results.rejected.length} rejected, ${results.failed.length} failed`,
+        results
+      });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
     }

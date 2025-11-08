@@ -3,6 +3,7 @@
  * Reusable card container with animations and gradient effects
  */
 
+import PropTypes from 'prop-types'
 import { motion as Motion } from 'framer-motion'
 import { cn } from '../../utils/helpers'
 
@@ -50,6 +51,16 @@ export default function Card({
   )
 }
 
+Card.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  padding: PropTypes.bool,
+  hover: PropTypes.bool,
+  glassmorphic: PropTypes.bool,
+  gradient: PropTypes.bool,
+  animated: PropTypes.bool,
+}
+
 export function CardHeader({ children, className = '', gradient = false }) {
   return (
     <div className={cn('mb-4', className)}>
@@ -60,6 +71,12 @@ export function CardHeader({ children, className = '', gradient = false }) {
       ) : children}
     </div>
   )
+}
+
+CardHeader.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  gradient: PropTypes.bool,
 }
 
 export function CardTitle({ children, className = '', gradient = false }) {
@@ -78,12 +95,23 @@ export function CardTitle({ children, className = '', gradient = false }) {
   )
 }
 
+CardTitle.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  gradient: PropTypes.bool,
+}
+
 export function CardContent({ children, className = '' }) {
   return (
     <div className={cn('text-slate-700 dark:text-slate-300', className)}>
       {children}
     </div>
   )
+}
+
+CardContent.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
 }
 
 export function CardFooter({ children, className = '' }) {
@@ -96,4 +124,9 @@ export function CardFooter({ children, className = '' }) {
       {children}
     </div>
   )
+}
+
+CardFooter.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
 }

@@ -12,7 +12,6 @@ import {
   PencilIcon,
   TrashIcon,
   EyeIcon,
-  CheckCircleIcon,
   XCircleIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline'
@@ -25,7 +24,9 @@ import Modal, { ModalFooter } from '../../components/ui/Modal'
 import Badge from '../../components/ui/Badge'
 import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
-import { getStudents } from '../../services/studentService'
+import studentService from '../../services/studentService'
+
+import toast from 'react-hot-toast'
 
 export default function StudentManagement() {
   const [students, setStudents] = useState([])
@@ -39,11 +40,13 @@ export default function StudentManagement() {
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [showViewModal, setShowViewModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editData, setEditData] = useState({})
 
   const fetchStudents = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await getStudents(filters)
+      const response = await studentService.getStudents(filters)
       
       // Handle different response structures and ensure we get an array
       let studentList = []
@@ -90,10 +93,192 @@ export default function StudentManagement() {
     setShowDeleteModal(true)
   }
 
+  const handleEdit = (student) => {
+    setSelectedStudent(student)
+    setEditData({
+      name: student.name || '',
+      email: student.email || '',
+      registerNumber: student.registerNumber || '',
+      year: student.year || '',
+      hostelBlock: student.hostelBlock || '',
+      status: student.status || 'active'
+    })
+    setShowEditModal(true)
+  }
+
+  const saveEdit = async () => {
+    try {
+      await studentService.update(selectedStudent._id, editData)
+      toast.success('Student updated')
+      setShowEditModal(false)
+      setSelectedStudent(null)
+      setEditData({})
+      fetchStudents()
+    } catch {
+      toast.error('Failed to update student')
+    }
+  }
+
+  const suspendStudent = async () => {
+    try {
+      await studentService.suspend(selectedStudent._id, 'Violation of rules')
+      toast.success('Student suspended')
+      setShowViewModal(false)
+      fetchStudents()
+    } catch {
+      toast.error('Failed to suspend')
+    }
+  }
+
+  const activateStudent = async () => {
+    try {
+      await studentService.activate(selectedStudent._id)
+      toast.success('Student activated')
+      setShowViewModal(false)
+      fetchStudents()
+    } catch {
+      toast.error('Failed to activate')
+    }
+  }
+
   const confirmDelete = async () => {
-    // TODO: Implement delete
-    console.log('Delete student:', selectedStudent)
-    setShowDeleteModal(false)
+    try {
+      await studentService.delete(selectedStudent._id)
+      toast.success(`Student ${selectedStudent.firstName} ${selectedStudent.lastName} deleted successfully`)
+      setShowDeleteModal(false)
+      setSelectedStudent(null)
+      fetchStudents() // Refresh the list
+    } catch (error) {
+      console.error('Failed to delete student:', error)
+      toast.error(error.response?.data?.message || 'Failed to delete student')
+    }
+  }
+
+  // Helper function to render table content
+  const renderTableContent = () => {
+    if (loading) {
+      return <LoadingTable rows={5} columns={6} />
+    }
+    
+    if (filteredStudents.length === 0) {
+      return (
+        <EmptyState
+          icon={FunnelIcon}
+          title="No students found"
+          description="Try adjusting your search or filter criteria"
+        />
+      )
+    }
+    
+    return (
+      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+          <thead className="bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10">
+            <tr>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Student
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Register No
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Department
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Year
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Hostel
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white/50 dark:bg-slate-800/50">
+            {filteredStudents.map((student, index) => (
+              <Motion.tr
+                key={student._id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.05 }}
+                whileHover={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}
+                className="transition-all duration-200"
+              >
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center">
+                    <Motion.div
+                      className="flex-shrink-0 h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg"
+                      whileHover={{ rotate: 360 }}
+                      transition={{ duration: 0.6 }}
+                    >
+                      <UserIcon className="h-6 w-6 text-white" />
+                    </Motion.div>
+                    <div className="ml-4">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                        {student.firstName} {student.lastName}
+                      </div>
+                      <div className="text-sm text-slate-500 dark:text-slate-400">
+                        {student.email}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
+                  {student.rollNumber}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <Badge variant="info">
+                    {student.department}
+                  </Badge>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <Badge variant="primary">
+                    Year {student.year}
+                  </Badge>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <Badge variant="success">
+                    {student.hostel}
+                  </Badge>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <div className="flex items-center gap-2">
+                    <Motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleView(student)}
+                      className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                      title="View Details"
+                    >
+                      <EyeIcon className="h-5 w-5" />
+                    </Motion.button>
+                    <Motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleEdit(student)}
+                      className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                      title="Edit"
+                    >
+                      <PencilIcon className="h-5 w-5" />
+                    </Motion.button>
+                    <Motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleDelete(student)}
+                      className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      title="Delete"
+                    >
+                      <TrashIcon className="h-5 w-5" />
+                    </Motion.button>
+                  </div>
+                </td>
+              </Motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
   }
 
   return (
@@ -214,6 +399,7 @@ export default function StudentManagement() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-display font-bold text-slate-900 dark:text-white">
               Students List
+              {' '}
               <span className="ml-3 text-sm font-normal text-slate-500 dark:text-slate-400">
                 ({filteredStudents.length} students)
               </span>
@@ -228,125 +414,7 @@ export default function StudentManagement() {
             </Button>
           </div>
 
-          {loading ? (
-            <LoadingTable rows={5} columns={6} />
-          ) : filteredStudents.length === 0 ? (
-            <EmptyState
-              icon={FunnelIcon}
-              title="No students found"
-              description="Try adjusting your search or filter criteria"
-            />
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead className="bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Student
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Register No
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Hostel Block
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Year
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Status
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white/50 dark:bg-slate-800/50">
-                  {filteredStudents.map((student, index) => (
-                    <Motion.tr
-                      key={student._id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.3, delay: index * 0.05 }}
-                      whileHover={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}
-                      className="transition-all duration-200"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <Motion.div
-                            className="flex-shrink-0 h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg"
-                            whileHover={{ rotate: 360 }}
-                            transition={{ duration: 0.6 }}
-                          >
-                            <span className="text-white font-bold text-lg">
-                              {student.name?.charAt(0) || 'S'}
-                            </span>
-                          </Motion.div>
-                          <div className="ml-4">
-                            <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                              {student.name || 'N/A'}
-                            </div>
-                            <div className="text-sm text-slate-500 dark:text-slate-400">
-                              {student.email}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
-                        {student.registerNumber || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant="info">
-                          Block {student.hostelBlock || 'N/A'}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white">
-                        Year {student.year || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge
-                          variant={student.status === 'active' ? 'success' : 'danger'}
-                          icon={student.status === 'active' ? CheckCircleIcon : XCircleIcon}
-                        >
-                          {student.status || 'Active'}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div className="flex items-center gap-2">
-                          <Motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleView(student)}
-                            className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                            title="View Details"
-                          >
-                            <EyeIcon className="h-5 w-5" />
-                          </Motion.button>
-                          <Motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                            title="Edit"
-                          >
-                            <PencilIcon className="h-5 w-5" />
-                          </Motion.button>
-                          <Motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleDelete(student)}
-                            className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                            title="Delete"
-                          >
-                            <TrashIcon className="h-5 w-5" />
-                          </Motion.button>
-                        </div>
-                      </td>
-                    </Motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {renderTableContent()}
         </Card>
       </Motion.div>
 
@@ -412,8 +480,11 @@ export default function StudentManagement() {
               >
                 Close
               </Button>
-              <Button variant="primary">
-                Edit Student
+              <Button variant="warning" onClick={suspendStudent}>
+                Suspend
+              </Button>
+              <Button variant="success" onClick={activateStudent}>
+                Activate
               </Button>
             </ModalFooter>
           </div>
@@ -421,6 +492,34 @@ export default function StudentManagement() {
       </Modal>
 
       {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit Student"
+        size="md"
+      >
+        <div className="space-y-4">
+          <Input label="Name" value={editData.name || ''} onChange={(e)=>setEditData(prev=>({...prev, name:e.target.value}))} />
+          <Input label="Email" type="email" value={editData.email || ''} onChange={(e)=>setEditData(prev=>({...prev, email:e.target.value}))} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Register Number" value={editData.registerNumber || ''} onChange={(e)=>setEditData(prev=>({...prev, registerNumber:e.target.value}))} />
+            <Input label="Year" value={editData.year || ''} onChange={(e)=>setEditData(prev=>({...prev, year:e.target.value}))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Hostel Block" value={editData.hostelBlock || ''} onChange={(e)=>setEditData(prev=>({...prev, hostelBlock:e.target.value}))} />
+            <Select label="Status" value={editData.status || 'active'} onChange={(e)=>setEditData(prev=>({...prev, status:e.target.value}))}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="suspended">Suspended</option>
+            </Select>
+          </div>
+          <ModalFooter>
+            <Button variant="ghost" onClick={()=>setShowEditModal(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveEdit}>Save</Button>
+          </ModalFooter>
+        </div>
+      </Modal>
+
       <Modal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}

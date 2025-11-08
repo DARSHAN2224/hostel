@@ -136,8 +136,10 @@ export const ROUTES = {
   
   // Features
   STUDENTS: '/students',
+  WARDENS: '/wardens',
+  HODS: '/hods',
   OUTPASS_REQUESTS: '/outpass-requests',
-  OUTPASS_HISTORY: '/outpass-history',
+  OUTPASS_HISTORY: '/history',
   REPORTS: '/reports',
   SETTINGS: '/settings',
   PROFILE: '/profile',

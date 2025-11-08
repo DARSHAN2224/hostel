@@ -18,9 +18,7 @@ import {
   SparklesIcon
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../layouts/DashboardLayout'
-import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
-import Button from '../components/ui/Button'
 import { LoadingCard } from '../components/ui/Loading'
 import EmptyState from '../components/ui/EmptyState'
 import { selectUser } from '../store/authSlice'
@@ -51,8 +49,27 @@ const itemVariants = {
   }
 }
 
+/**
+ * StatCard component
+ * @param {Object} props
+ * @param {string} props.title - Card title
+ * @param {number|string} props.value - Card value
+ * @param {React.ComponentType} props.icon - Icon component
+ * @param {string} [props.trend] - Trend direction (up/down)
+ * @param {string} [props.trendText] - Trend description
+ * @param {string} props.gradient - Gradient classes
+ * @param {number} [props.delay=0] - Animation delay
+ */
 const StatCard = ({ title, value, icon, trend, trendText, gradient, delay = 0 }) => {
   const IconComponent = icon
+  
+  // Determine gradient colors based on type
+  const getGradientColors = () => {
+    if (gradient.includes('blue')) return '#3b82f6, #06b6d4'
+    if (gradient.includes('amber')) return '#f59e0b, #f97316'
+    if (gradient.includes('green')) return '#10b981, #059669'
+    return '#8b5cf6, #ec4899'
+  }
   
   return (
     <Motion.div
@@ -74,7 +91,7 @@ const StatCard = ({ title, value, icon, trend, trendText, gradient, delay = 0 })
             <Motion.p 
               className="mt-2 text-4xl font-bold bg-gradient-to-br bg-clip-text text-transparent"
               style={{ 
-                backgroundImage: `linear-gradient(135deg, ${gradient.includes('blue') ? '#3b82f6, #06b6d4' : gradient.includes('amber') ? '#f59e0b, #f97316' : gradient.includes('green') ? '#10b981, #059669' : '#8b5cf6, #ec4899'})`
+                backgroundImage: `linear-gradient(135deg, ${getGradientColors()})`
               }}
               initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}

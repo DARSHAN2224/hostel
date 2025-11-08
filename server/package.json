@@ -6,6 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:prod": "NODE_ENV=production node src/server.js",
     "dev": "nodemon --watch src --exec node src/server.js",
     "dev:debug": "nodemon --inspect --watch src --exec node src/server.js",
     "seed:admin": "node src/scripts/seedAdmin.js",
@@ -21,7 +22,10 @@
     "logs:clear": "Remove-Item logs/*.log -Force",
     "db:health": "node scripts/checkDbHealth.js",
     "validate:env": "node scripts/validateEnv.js",
-    "prepare": "husky install"
+    "validate:prod": "node scripts/validateProductionEnv.js",
+    "prepare": "husky install",
+    "build": "echo 'No build step required for Node.js server'",
+    "deploy:check": "npm run validate:prod && npm run lint && npm run test"
   },
   "repository": {
     "type": "git",
@@ -43,12 +47,14 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "express-async-handler": "^1.2.0",
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
     "joi": "^18.0.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.1",
     "morgan": "^1.10.0",
+    "multer": "^2.0.2",
     "nodemailer": "^6.9.14",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",

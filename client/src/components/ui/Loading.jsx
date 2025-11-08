@@ -3,6 +3,7 @@
  * Loading spinner and skeleton states with gradient effects
  */
 
+import PropTypes from 'prop-types'
 import { motion as Motion } from 'framer-motion'
 import { cn } from '../../utils/helpers'
 
@@ -90,26 +91,42 @@ export default function Loading({
   return spinner
 }
 
+Loading.propTypes = {
+  size: PropTypes.oneOf(['sm', 'md', 'lg', 'xl']),
+  fullScreen: PropTypes.bool,
+  text: PropTypes.string,
+  className: PropTypes.string,
+  gradient: PropTypes.bool,
+}
+
 export function LoadingSkeleton({ className = '', rows = 3 }) {
   return (
     <div className={cn('space-y-3', className)}>
-      {[...Array(rows)].map((_, i) => (
-        <Motion.div
-          key={i}
-          className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-lg overflow-hidden"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: i * 0.1 }}
-        >
+      {Array.from({ length: rows }).map((_, i) => {
+        const uniqueKey = `skeleton-${Date.now()}-${Math.random()}`
+        return (
           <Motion.div
-            className="h-full w-full bg-gradient-to-r from-transparent via-white/60 to-transparent dark:via-white/10"
-            animate={{ x: ['0%', '200%'] }}
-            transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-          />
-        </Motion.div>
-      ))}
+            key={uniqueKey}
+            className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-lg overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: i * 0.1 }}
+          >
+            <Motion.div
+              className="h-full w-full bg-gradient-to-r from-transparent via-white/60 to-transparent dark:via-white/10"
+              animate={{ x: ['0%', '200%'] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+            />
+          </Motion.div>
+        )
+      })}
     </div>
   )
+}
+
+LoadingSkeleton.propTypes = {
+  className: PropTypes.string,
+  rows: PropTypes.number,
 }
 
 export function LoadingCard({ className = '' }) {
@@ -158,40 +175,47 @@ export function LoadingCard({ className = '' }) {
   )
 }
 
+LoadingCard.propTypes = {
+  className: PropTypes.string,
+}
+
 export function LoadingTable({ rows = 5, columns = 4 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
       <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead className="bg-slate-50 dark:bg-slate-800/50">
           <tr>
-            {[...Array(columns)].map((_, i) => (
-              <th key={i} className="px-6 py-4">
-                <Motion.div 
-                  className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-lg w-24 overflow-hidden"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: i * 0.1 }}
-                >
-                  <Motion.div
-                    className="h-full w-full bg-gradient-to-r from-transparent via-white/60 to-transparent dark:via-white/10"
-                    animate={{ x: ['0%', '200%'] }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-                  />
-                </Motion.div>
-              </th>
-            ))}
+            {Array.from({ length: columns }).map((_, i) => {
+              const colKey = `col-${Date.now()}-${Math.random()}`
+              return (
+                <th key={colKey} className="px-6 py-4">
+                  <Motion.div 
+                    className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-lg w-24 overflow-hidden"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.1 }}
+                  >
+                    <Motion.div
+                      className="h-full w-full bg-gradient-to-r from-transparent via-white/60 to-transparent dark:via-white/10"
+                      animate={{ x: ['0%', '200%'] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                    />
+                  </Motion.div>
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white dark:bg-slate-800">
-          {[...Array(rows)].map((_, i) => (
+          {Array.from({ length: rows }).map((_, i) => (
             <Motion.tr 
-              key={i}
+              key={`row-${i}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: i * 0.05 }}
             >
-              {[...Array(columns)].map((_, j) => (
-                <td key={j} className="px-6 py-4">
+              {Array.from({ length: columns }).map((_, j) => (
+                <td key={`cell-${i}-${j}`} className="px-6 py-4">
                   <Motion.div 
                     className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-lg overflow-hidden"
                   >
@@ -209,4 +233,9 @@ export function LoadingTable({ rows = 5, columns = 4 }) {
       </table>
     </div>
   )
+}
+
+LoadingTable.propTypes = {
+  rows: PropTypes.number,
+  columns: PropTypes.number,
 }

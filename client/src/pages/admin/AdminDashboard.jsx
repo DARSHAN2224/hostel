@@ -28,7 +28,9 @@ import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
-import { USER_ROLES, USER_STATUS } from '../../constants'
+import { USER_ROLES, USER_STATUS, HOSTEL_TYPES } from '../../constants'
+import { getUserStats, getUsers, createUser, updateUser, deleteUser } from '../../services/userService'
+import toast from 'react-hot-toast'
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
@@ -46,55 +48,93 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [_selectedUser, setSelectedUser] = useState(null)
+    const [showEditModal, setShowEditModal] = useState(false)
+    const [selectedUser, setSelectedUser] = useState(null)
+    const [editFormData, setEditFormData] = useState(null)
 
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true)
-      // TODO: Implement API calls
-      // Simulated data for now
-      setTimeout(() => {
-        setStats({
-          totalUsers: 245,
-          activeUsers: 238,
-          totalOutpasses: 1247,
-          pendingOutpasses: 23,
-          studentsCount: 200,
-          wardensCount: 15,
-          securityCount: 10,
-          hodCount: 20
-        })
-        setUsers([
-          {
-            _id: '1',
-            firstName: 'John',
-            lastName: 'Doe',
-            email: 'john.doe@college.edu',
-            role: USER_ROLES.STUDENT,
-            status: USER_STATUS.ACTIVE,
-            createdAt: new Date().toISOString()
-          },
-          {
-            _id: '2',
-            firstName: 'Jane',
-            lastName: 'Smith',
-            email: 'jane.smith@college.edu',
-            role: USER_ROLES.WARDEN,
-            status: USER_STATUS.ACTIVE,
-            createdAt: new Date().toISOString()
-          }
-        ])
-        setLoading(false)
-      }, 1000)
+      // Fetch stats
+      const statsRes = await getUserStats()
+      const s = statsRes?.data || statsRes
+      setStats((prev) => ({
+        ...prev,
+        totalUsers: s.totalUsers || 0,
+        studentsCount: s.studentsCount || 0,
+        wardensCount: s.wardensCount || 0,
+        securityCount: s.securityCount || 0,
+        hodCount: s.hodCount || 0,
+      }))
+
+      // Fetch users list with role filtering and search
+      const params = {
+        role: roleFilter === 'all' ? 'all' : roleFilter,
+        search: searchQuery || ''
+      }
+      const usersRes = await getUsers(params)
+      const list = usersRes?.data?.users || usersRes?.users || []
+      setUsers(Array.isArray(list) ? list : [])
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error)
+      toast.error(error?.message || 'Failed to load admin data')
+    } finally {
       setLoading(false)
     }
-  }, [])
+  }, [roleFilter, searchQuery])
 
   useEffect(() => {
     fetchDashboardData()
   }, [fetchDashboardData])
+
+  const handleDeleteUser = async (u) => {
+    try {
+      const loading = toast.loading('Deleting user...')
+      await deleteUser(u.role, u._id)
+      toast.success('User deleted', { id: loading })
+      fetchDashboardData()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to delete user')
+    }
+  }
+
+  const handleCreateUser = async (payload) => {
+    try {
+      const loading = toast.loading('Creating user...')
+      await createUser(payload)
+      toast.success('User created', { id: loading })
+      setShowCreateModal(false)
+        setSelectedUser(null)
+      fetchDashboardData()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to create user')
+    }
+  }
+
+  const handleEditUser = async (payload) => {
+    try {
+      const loading = toast.loading('Updating user...')
+      await updateUser(selectedUser.role, selectedUser._id, payload)
+      toast.success('User updated successfully', { id: loading })
+      setShowEditModal(false)
+      setSelectedUser(null)
+      setEditFormData(null)
+      fetchDashboardData()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to update user')
+    }
+  }
+
+  const openEditModal = (user) => {
+    setSelectedUser(user)
+    setEditFormData({
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      email: user.email || '',
+      status: user.status || 'active'
+    })
+    setShowEditModal(true)
+  }
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = 
@@ -316,68 +356,79 @@ export default function AdminDashboard() {
                 </div>
               </CardHeader>
               <CardContent>
-                {loading ? (
-                  <div className="space-y-4">
-                    {[1, 2, 3].map(i => <LoadingCard key={i} />)}
-                  </div>
-                ) : filteredUsers.length === 0 ? (
-                  <EmptyState
-                    icon={UsersIcon}
-                    title="No users found"
-                    description="Try adjusting your search or filters"
-                  />
-                ) : (
-                  <div className="space-y-3">
-                    {filteredUsers.map((user, index) => (
-                      <Motion.div
-                        key={user._id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        whileHover={{ x: 4, scale: 1.01 }}
-                        className="flex items-center justify-between p-4 bg-white/50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-700 transition-all duration-200"
-                      >
-                        <div className="flex items-center gap-4">
-                          <Motion.div
-                            className="relative"
-                            whileHover={{ scale: 1.1, rotate: 360 }}
-                            transition={{ duration: 0.5 }}
-                          >
-                            <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full blur opacity-50" />
-                            <div className="relative h-12 w-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
-                              <span className="text-lg font-bold text-white">
-                                {user.firstName.charAt(0)}
-                              </span>
+                {(() => {
+                  if (loading) {
+                    return (
+                      <div className="space-y-4">
+                        {[1, 2, 3].map(i => <LoadingCard key={i} />)}
+                      </div>
+                    )
+                  }
+                  
+                  if (filteredUsers.length === 0) {
+                    return (
+                      <EmptyState
+                        icon={UsersIcon}
+                        title="No users found"
+                        description="Try adjusting your search or filters"
+                      />
+                    )
+                  }
+                  
+                  return (
+                    <div className="space-y-3">
+                      {filteredUsers.map((user, index) => (
+                        <Motion.div
+                          key={user._id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          whileHover={{ x: 4, scale: 1.01 }}
+                          className="flex items-center justify-between p-4 bg-white/50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-700 transition-all duration-200"
+                        >
+                          <div className="flex items-center gap-4">
+                            <Motion.div
+                              className="relative"
+                              whileHover={{ scale: 1.1, rotate: 360 }}
+                              transition={{ duration: 0.5 }}
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full blur opacity-50" />
+                              <div className="relative h-12 w-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
+                                <span className="text-lg font-bold text-white">
+                                  {user.firstName.charAt(0)}
+                                </span>
+                              </div>
+                            </Motion.div>
+                            <div>
+                              <h4 className="font-semibold text-slate-900 dark:text-white">
+                                {user.firstName} {user.lastName}
+                              </h4>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">{user.email}</p>
                             </div>
-                          </Motion.div>
-                          <div>
-                            <h4 className="font-semibold text-slate-900 dark:text-white">
-                              {user.firstName} {user.lastName}
-                            </h4>
-                            <p className="text-sm text-slate-600 dark:text-slate-400">{user.email}</p>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Badge variant="default">{user.role}</Badge>
-                          <Badge variant={user.status === USER_STATUS.ACTIVE ? 'success' : 'danger'}>
-                            {user.status}
-                          </Badge>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              icon={PencilIcon}
-                              onClick={() => setSelectedUser(user)}
-                            />
-                            <Button
-                              variant="ghost"
-                              icon={TrashIcon}
-                            />
+                          <div className="flex items-center gap-3">
+                            <Badge variant="default">{user.role}</Badge>
+                            <Badge variant={user.status === USER_STATUS.ACTIVE ? 'success' : 'danger'}>
+                              {user.status}
+                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                icon={PencilIcon}
+                        onClick={() => openEditModal(user)}
+                              />
+                              <Button
+                                variant="ghost"
+                                icon={TrashIcon}
+                                onClick={() => handleDeleteUser(user)}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      </Motion.div>
-                    ))}
-                  </div>
-                )}
+                        </Motion.div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </CardContent>
             </Card>
           </Motion.div>
@@ -386,25 +437,131 @@ export default function AdminDashboard() {
         {/* Create User Modal */}
         <Modal
           isOpen={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => { setShowCreateModal(false); setSelectedUser(null); }}
           title="Create New User"
           gradient
         >
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+            {/* Basic Info */}
             <div className="grid grid-cols-2 gap-4">
-              <Input label="First Name" glassmorphic required />
-              <Input label="Last Name" glassmorphic required />
+              <Input label="First Name" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), firstName:e.target.value}))} />
+              <Input label="Last Name" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), lastName:e.target.value}))} />
             </div>
-            <Input label="Email" type="email" glassmorphic required />
-            <Select label="Role" glassmorphic required>
+            <Input label="Email" type="email" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), email:e.target.value}))} />
+            <Select label="Role" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), role:e.target.value}))}>
               <option value="">Select Role</option>
               <option value={USER_ROLES.STUDENT}>Student</option>
               <option value={USER_ROLES.WARDEN}>Warden</option>
               <option value={USER_ROLES.SECURITY}>Security</option>
-              <option value={USER_ROLES.HOD}>HOD</option>
               <option value={USER_ROLES.ADMIN}>Admin</option>
+              <option value={USER_ROLES.HOD}>HOD</option>
             </Select>
-            <Input label="Password" type="password" glassmorphic required />
+            <Input label="Password" type="password" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), password:e.target.value}))} />
+
+            {/* Student-specific fields */}
+            {selectedUser?.role === USER_ROLES.STUDENT && (
+              <Motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700"
+              >
+                <h4 className="font-semibold text-slate-900 dark:text-white">Student Details</h4>
+                <Input 
+                  label="Roll Number" 
+                  glassmorphic 
+                  required 
+                  placeholder="e.g. 2021-CS-101"
+                  onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), rollNumber:e.target.value}}))} 
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input 
+                    label="Course" 
+                    glassmorphic 
+                    required 
+                    placeholder="e.g. B.Tech"
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), course:e.target.value}}))} 
+                  />
+                  <Select 
+                    label="Year" 
+                    glassmorphic 
+                    required 
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), year:Number.parseInt(e.target.value)}}))}
+                  >
+                    <option value="">Select Year</option>
+                    <option value="1">1st Year</option>
+                    <option value="2">2nd Year</option>
+                    <option value="3">3rd Year</option>
+                    <option value="4">4th Year</option>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Select 
+                    label="Semester" 
+                    glassmorphic 
+                    required 
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), semester:Number.parseInt(e.target.value)}}))}
+                  >
+                    <option value="">Select Semester</option>
+                    {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
+                  </Select>
+                  <Input 
+                    label="Department" 
+                    glassmorphic 
+                    required 
+                    placeholder="e.g. Computer Science"
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), department:e.target.value}}))} 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Select 
+                    label="Hostel Type" 
+                    glassmorphic 
+                    required 
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), hostelType:e.target.value}}))}
+                  >
+                    <option value="">Select Type</option>
+                    <option value={HOSTEL_TYPES.BOYS}>Boys Hostel</option>
+                    <option value={HOSTEL_TYPES.GIRLS}>Girls Hostel</option>
+                  </Select>
+                  <Input 
+                    label="Hostel Block" 
+                    glassmorphic 
+                    required 
+                    placeholder="e.g. A, B, C"
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), hostelBlock:e.target.value}}))} 
+                  />
+                </div>
+                <Input 
+                  label="Room Number" 
+                  glassmorphic 
+                  required 
+                  placeholder="e.g. 101, 201"
+                  onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), roomNumber:e.target.value}}))} 
+                />
+              </Motion.div>
+            )}
+
+            {/* Warden-specific fields */}
+            {selectedUser?.role === USER_ROLES.WARDEN && (
+              <Motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700"
+              >
+                <h4 className="font-semibold text-slate-900 dark:text-white">Warden Details</h4>
+                <Select 
+                  label="Hostel Type" 
+                  glassmorphic 
+                  required 
+                  onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), warden: {...(prev?.warden||{}), hostelType:e.target.value}}))}
+                >
+                  <option value="">Select Type</option>
+                  <option value={HOSTEL_TYPES.BOYS}>Boys Hostel</option>
+                  <option value={HOSTEL_TYPES.GIRLS}>Girls Hostel</option>
+                </Select>
+              </Motion.div>
+            )}
+
             <div className="flex items-center gap-3 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
               <ShieldCheckIcon className="h-5 w-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
               <p className="text-sm text-purple-900 dark:text-purple-100">
@@ -414,7 +571,7 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-3 pt-4">
               <Button
                 variant="ghost"
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => { setShowCreateModal(false); setSelectedUser(null); }}
                 className="flex-1"
               >
                 Cancel
@@ -422,13 +579,103 @@ export default function AdminDashboard() {
               <Button
                 icon={UserPlusIcon}
                 className="flex-1"
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => {
+                  if (!selectedUser?.role || !selectedUser?.email || !selectedUser?.password) {
+                    toast.error('Fill all required fields')
+                    return
+                  }
+                  if (selectedUser.role === USER_ROLES.STUDENT) {
+                    const s = selectedUser.student
+                    if (!s?.rollNumber || !s?.course || !s?.year || !s?.semester || !s?.department || !s?.hostelType || !s?.hostelBlock || !s?.roomNumber) {
+                      toast.error('Fill all student details')
+                      return
+                    }
+                  }
+                  handleCreateUser(selectedUser)
+                }}
               >
                 Create User
               </Button>
             </div>
           </div>
         </Modal>
+
+          {/* Edit User Modal */}
+          <Modal
+            isOpen={showEditModal}
+            onClose={() => { setShowEditModal(false); setSelectedUser(null); setEditFormData(null); }}
+            title="Edit User"
+            gradient
+          >
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Input 
+                  label="First Name" 
+                  glassmorphic 
+                  required 
+                  value={editFormData?.firstName || ''}
+                  onChange={(e)=>setEditFormData(prev=>({...(prev||{}), firstName:e.target.value}))} 
+                />
+                <Input 
+                  label="Last Name" 
+                  glassmorphic 
+                  required 
+                  value={editFormData?.lastName || ''}
+                  onChange={(e)=>setEditFormData(prev=>({...(prev||{}), lastName:e.target.value}))} 
+                />
+              </div>
+              <Input 
+                label="Email" 
+                type="email" 
+                glassmorphic 
+                required 
+                value={editFormData?.email || ''}
+                onChange={(e)=>setEditFormData(prev=>({...(prev||{}), email:e.target.value}))} 
+              />
+              <Select 
+                label="Status" 
+                glassmorphic 
+                required 
+                value={editFormData?.status || 'active'}
+                onChange={(e)=>setEditFormData(prev=>({...(prev||{}), status:e.target.value}))}
+              >
+                <option value={USER_STATUS.ACTIVE}>Active</option>
+                <option value={USER_STATUS.INACTIVE}>Inactive</option>
+                <option value={USER_STATUS.SUSPENDED}>Suspended</option>
+                <option value={USER_STATUS.PENDING}>Pending</option>
+              </Select>
+            
+              <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+                <ShieldCheckIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                <p className="text-sm text-blue-900 dark:text-blue-100">
+                  User role: <strong>{selectedUser?.role}</strong>. Role cannot be changed after creation.
+                </p>
+              </div>
+            
+              <div className="flex items-center gap-3 pt-4">
+                <Button
+                  variant="ghost"
+                  onClick={() => { setShowEditModal(false); setSelectedUser(null); setEditFormData(null); }}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  icon={PencilIcon}
+                  className="flex-1"
+                  onClick={() => {
+                    if (!editFormData?.firstName || !editFormData?.lastName || !editFormData?.email) {
+                      toast.error('Fill all required fields')
+                      return
+                    }
+                    handleEditUser(editFormData)
+                  }}
+                >
+                  Update User
+                </Button>
+              </div>
+              </div>
+          </Modal>
       </Motion.div>
     </DashboardLayout>
   )

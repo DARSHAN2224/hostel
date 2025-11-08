@@ -1,19 +1,16 @@
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { useState } from 'react'
 import { 
-  BellIcon, 
   Bars3Icon, 
   MoonIcon, 
   SunIcon,
   MagnifyingGlassIcon
 } from '@heroicons/react/24/outline'
 import { getInitials } from '../../utils/helpers'
+import PropTypes from 'prop-types'
 
-export default function Header({ user, toggleSidebar, theme, toggleTheme }) {
-  const [showNotifications, setShowNotifications] = useState(false)
+export default function Header({ user, toggleSidebar, theme, toggleTheme, notificationBell }) {
   const [showSearch, setShowSearch] = useState(false)
-
-  const notifications = []
 
   return (
     <Motion.header
@@ -93,78 +90,7 @@ export default function Header({ user, toggleSidebar, theme, toggleTheme }) {
             </Motion.button>
 
             {/* Notifications */}
-            <div className="relative">
-              <Motion.button
-                onClick={() => setShowNotifications(!showNotifications)}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="relative p-2 md:p-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors"
-              >
-                <BellIcon className="h-5 w-5" />
-                {notifications.length > 0 && (
-                  <Motion.span
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute top-1.5 right-1.5 flex h-2 w-2"
-                  >
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                  </Motion.span>
-                )}
-              </Motion.button>
-
-              {/* Notifications dropdown */}
-              <AnimatePresence>
-                {showNotifications && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setShowNotifications(false)}
-                    />
-                    <Motion.div
-                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                      className="absolute right-0 mt-2 w-80 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-20"
-                    >
-                      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-blue-500/10 to-purple-500/10">
-                        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                          Notifications
-                        </h3>
-                      </div>
-                      {notifications.length === 0 ? (
-                        <div className="px-4 py-12 text-center">
-                          <BellIcon className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-                          <p className="text-sm text-slate-500 dark:text-slate-400">
-                            No new notifications
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="max-h-96 overflow-y-auto">
-                          {notifications.map((notification, index) => (
-                            <Motion.div
-                              key={index}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer border-b border-slate-100 dark:border-slate-700/50 last:border-0"
-                            >
-                              <p className="text-sm text-slate-900 dark:text-white font-medium">
-                                {notification.message}
-                              </p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                {notification.time}
-                              </p>
-                            </Motion.div>
-                          ))}
-                        </div>
-                      )}
-                    </Motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
+            {notificationBell}
 
             {/* Profile */}
             <Motion.div 
@@ -215,4 +141,12 @@ export default function Header({ user, toggleSidebar, theme, toggleTheme }) {
       </AnimatePresence>
     </Motion.header>
   )
+}
+
+Header.propTypes = {
+  user: PropTypes.object,
+  toggleSidebar: PropTypes.func.isRequired,
+  theme: PropTypes.string.isRequired,
+  toggleTheme: PropTypes.func.isRequired,
+  notificationBell: PropTypes.node,
 }

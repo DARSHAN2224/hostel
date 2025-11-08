@@ -1,11 +1,12 @@
 import { Student, Warden, Admin, Security, Parent } from '../models/index.js'
-import Hod from '../models/Hod.js';
+import Hod from '../models/Hod.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { AppError } from '../middleware/errorHandler.js'
 import generateVerificationCode from '../utils/generateVerificationCode.js'
 import { sendVerificationEmail } from '../services/emailService.js'
 import { ApiResponse } from '../utils/ApiResponse.js'
 import { config } from '../config/config.js'
+import { deleteOldProfilePicture } from '../middleware/upload.js'
 
 const ModelMap = {
   student: Student,
@@ -144,7 +145,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
   if (role === 'student' && parentDetails) {
     try {
       // Extract parent information from parentDetails
-      const { guardianPhone, guardianEmail, fatherName, motherName } = parentDetails
+  const { guardianPhone, guardianEmail, fatherName } = parentDetails
       
       if (guardianPhone) {
         // Check if parent already exists by phone
@@ -152,6 +153,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
         
         if (!parent) {
           // Create new parent record
+          const addr = userData?.permanentAddress || {}
           const parentData = {
             firstName: fatherName || 'Guardian',
             lastName: user.lastName,
@@ -159,10 +161,10 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
             email: guardianEmail || undefined,
             relationshipToStudent: fatherName ? 'father' : 'guardian',
             address: {
-              city: permanentAddress?.city || 'To be updated',
-              state: permanentAddress?.state || 'To be updated',
-              zipCode: permanentAddress?.zipCode || '000000',
-              street: permanentAddress?.street || undefined,
+              city: addr.city || 'To be updated',
+              state: addr.state || 'To be updated',
+              zipCode: addr.zipCode || '000000',
+              street: addr.street || undefined,
             },
             students: [{
               student: user._id,
@@ -235,6 +237,167 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     }
     throw err
   }
+})
+
+// Helper to normalize user documents across models
+const toUserDTO = (u, roleOverride) => ({
+  _id: u._id,
+  firstName: u.firstName || u.name || '',
+  lastName: u.lastName || '',
+  email: u.email,
+  phone: u.phone,
+  role: roleOverride || u.role,
+  status: u.status || (u.isActive ? 'active' : undefined) || 'active',
+  hostelType: u.hostelType, // For wardens and students
+  hostelBlock: u.hostelBlock, // For students
+  assignedHostelBlocks: u.assignedHostelBlocks, // For wardens
+  createdAt: u.createdAt,
+})
+
+// GET /users - list users with role/search/pagination
+export const listUsers = asyncHandler(async (req, res) => {
+  const { role = 'all', search = '', hostelType, hostelBlock, /* page = 1, */ limit = 20 } = req.query
+  const l = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100)
+
+  const buildQuery = () => {
+    const query = {}
+    
+    // Search filter
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ]
+    }
+    
+    // Hostel type filter (for wardens and students)
+    if (hostelType) {
+      query.hostelType = hostelType
+    }
+    
+    // Hostel block filter (for wardens via assignedHostelBlocks array, students via hostelBlock field)
+    if (hostelBlock) {
+      query.$or = query.$or || []
+      query.$or.push(
+        { hostelBlock: hostelBlock }, // For students
+        { 'assignedHostelBlocks.blockName': hostelBlock } // For wardens
+      )
+    }
+    
+    return query
+  }
+
+  const fetchByRole = async (r, skip = 0, take = l) => {
+    const Model = ModelMap[r]
+    if (!Model) return { items: [], total: 0 }
+    const query = buildQuery()
+    const [items, total] = await Promise.all([
+      Model.find(query).sort({ createdAt: -1 }).skip(skip).limit(take),
+      Model.countDocuments(query),
+    ])
+    return { items: items.map(u => toUserDTO(u, r)), total }
+  }
+
+  let data = []
+  let total = 0
+
+  if (role !== 'all') {
+    const { items, total: t } = await fetchByRole(role)
+    data = items
+    total = t
+  } else {
+    // Combine across roles (simple approach without global pagination)
+    const roles = ['student', 'warden', 'security', 'admin']
+    const perRoleLimit = Math.ceil(l / roles.length)
+    const results = await Promise.all(roles.map(r => fetchByRole(r, 0, perRoleLimit)))
+    data = results.flatMap(r => r.items)
+    total = results.reduce((sum, r) => sum + r.total, 0)
+  }
+
+  res.json(new ApiResponse(200, { users: data, total }, 'Users retrieved'))
+})
+
+// GET /users/stats - counts per role and totals
+export const getUserStats = asyncHandler(async (req, res) => {
+  const [students, wardens, security, admins] = await Promise.all([
+    Student.countDocuments({}),
+    Warden.countDocuments({}),
+    Security.countDocuments({}),
+    Admin.countDocuments({}),
+  ])
+
+  const totalUsers = students + wardens + security + admins
+  res.json(new ApiResponse(200, {
+    totalUsers,
+    studentsCount: students,
+    wardensCount: wardens,
+    securityCount: security,
+    hodCount: 0, // HODs managed separately
+  }, 'User stats'))
+})
+
+// PATCH /users/:role/:id - minimal updates
+export const updateUser = asyncHandler(async (req, res, next) => {
+  const { role, id } = req.params
+  const Model = ModelMap[role]
+  if (!Model) return next(new AppError('Invalid role', 400))
+
+  const allowed = ['firstName', 'lastName', 'phone', 'status']
+  const updates = {}
+  allowed.forEach((k) => {
+    if (req.body[k] !== undefined) updates[k] = req.body[k]
+  })
+
+  const user = await Model.findByIdAndUpdate(id, updates, { new: true, runValidators: true })
+  if (!user) return next(new AppError('User not found', 404))
+
+  res.json(new ApiResponse(200, { user: toUserDTO(user, role) }, 'User updated'))
+})
+
+// DELETE /users/:role/:id
+export const deleteUser = asyncHandler(async (req, res, next) => {
+  const { role, id } = req.params
+  const Model = ModelMap[role]
+  if (!Model) return next(new AppError('Invalid role', 400))
+
+  const user = await Model.findByIdAndDelete(id)
+  if (!user) return next(new AppError('User not found', 404))
+
+  // Delete profile picture if exists
+  if (user.profilePicture) {
+    deleteOldProfilePicture(user.profilePicture)
+  }
+
+  res.json(new ApiResponse(200, null, 'User deleted'))
+})
+
+// POST /users/profile-picture - Upload profile picture
+export const uploadProfilePicture = asyncHandler(async (req, res, next) => {
+  if (!req.file) {
+    return next(new AppError('No file uploaded', 400))
+  }
+
+  const userRole = req.user.role
+  const userId = req.user.id
+  
+  const Model = ModelMap[userRole] || (userRole === 'hod' ? Hod : null)
+  if (!Model) return next(new AppError('Invalid user role', 400))
+
+  const user = await Model.findById(userId)
+  if (!user) return next(new AppError('User not found', 404))
+
+  // Delete old profile picture if exists
+  if (user.profilePicture) {
+    deleteOldProfilePicture(user.profilePicture)
+  }
+
+  // Save new profile picture path
+  const profilePicturePath = `/uploads/profiles/${req.file.filename}`
+  user.profilePicture = profilePicturePath
+  await user.save()
+
+  res.json(new ApiResponse(200, { profilePicture: profilePicturePath }, 'Profile picture uploaded successfully'))
 })
 
 export default { createUserManaged }
