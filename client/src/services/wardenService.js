@@ -28,8 +28,10 @@ export const wardenService = {
         }
       }
       
-      const response = await apiClient.get(API_ENDPOINTS.USERS, { params })
-      return response.data?.data?.users || []
+  const response = await apiClient.get(API_ENDPOINTS.USERS, { params })
+  // Robustly extract users array regardless of axios response structure
+  const users = response?.data?.users || response?.data?.data?.users || response?.users || [];
+  return users;
     } catch (error) {
       console.error('Failed to fetch wardens:', error)
       throw error
@@ -43,27 +45,32 @@ export const wardenService = {
    */
   create: async (wardenData) => {
     try {
+      // Split name into first and last
+      const [firstName, ...rest] = (wardenData.name || '').split(' ');
+      const lastName = rest.join(' ') || 'Warden';
       const payload = {
         role: 'warden',
         email: wardenData.email,
-        password: wardenData.password || 'TempPass123!', // Temporary password
-        firstName: wardenData.name.split(' ')[0],
-        lastName: wardenData.name.split(' ').slice(1).join(' ') || 'Warden',
+        password: wardenData.password || 'TempPass123!',
+        firstName,
+        lastName,
         phone: wardenData.phone,
         hostelType: wardenData.hostelType,
-        block: wardenData.hostelBlock,
-        emergencyContact: {
-          name: 'To be updated',
-          phone: '0000000000',
-          relationship: 'To be updated'
-        }
-      }
-      
-      const response = await apiClient.post(API_ENDPOINTS.USERS, payload)
-      return response.data
+        assignedHostelBlocks: [
+          {
+            blockName: wardenData.hostelBlock,
+            isPrimary: true,
+            floors: [],
+            totalRooms: 0,
+            currentOccupancy: 0
+          }
+        ]
+      };
+      const response = await apiClient.post(API_ENDPOINTS.USERS, payload);
+      return response.data;
     } catch (error) {
-      console.error('Failed to create warden:', error)
-      throw error
+      console.error('Failed to create warden:', error);
+      throw error;
     }
   },
 

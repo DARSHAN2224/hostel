@@ -4,7 +4,7 @@ const notificationService = {
   /**
    * Get user's notifications
    */
-  getNotifications: async (filters = {}) => {
+  getNotifications: async (filters = {}, config = {}) => {
     const params = new URLSearchParams()
     if (filters.limit) params.append('limit', filters.limit)
     if (filters.skip) params.append('skip', filters.skip)
@@ -12,16 +12,16 @@ const notificationService = {
     if (filters.type) params.append('type', filters.type)
     if (filters.priority) params.append('priority', filters.priority)
 
-    const response = await api.get(`/notifications?${params.toString()}`)
-    return response.data
+    const response = await api.get(`/notifications?${params.toString()}`, config)
+    return response
   },
 
   /**
    * Get unread notification count
    */
-  getUnreadCount: async () => {
-    const response = await api.get('/notifications/unread-count')
-    return response.data
+  getUnreadCount: async (config = {}) => {
+    const response = await api.get('/notifications/unread-count', config)
+    return response
   },
 
   /**

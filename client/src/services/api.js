@@ -29,7 +29,7 @@ apiClient.interceptors.request.use(
     return config
   },
   (error) => {
-    return Promise.reject(error)
+    throw error
   }
 )
 
@@ -41,7 +41,6 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config
-
     // Handle 401 Unauthorized
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
@@ -71,22 +70,45 @@ apiClient.interceptors.response.use(
         localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN)
         localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
         localStorage.removeItem(STORAGE_KEYS.USER_DATA)
-        
+
         // Redirect to login
-        window.location.href = ROUTES.LOGIN
-        return Promise.reject(refreshError)
+        globalThis.location.href = ROUTES.LOGIN
+        throw refreshError
       }
+    }
+
+    // Handle 429 Too Many Requests with simple retry/backoff
+    try {
+      const status = error.response?.status
+      const maxRetries = 3
+
+      if (status === 429) {
+        originalRequest._retryCount = originalRequest._retryCount || 0
+
+        if (originalRequest._retryCount < maxRetries) {
+          originalRequest._retryCount += 1
+
+          // Use Retry-After header if provided (seconds), otherwise exponential backoff
+          const retryAfterHeader = error.response?.headers?.['retry-after']
+          const retryAfter = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : null
+          const delay = retryAfter ? retryAfter * 1000 : 1000 * Math.pow(2, originalRequest._retryCount)
+
+          await new Promise((res) => setTimeout(res, delay))
+          return apiClient(originalRequest)
+        }
+      }
+    } catch (e) {
+      // If retry handling itself fails, fall through to error formatting
+      console.warn('Retry-on-429 handler error', e)
     }
 
     // Format error response
     const errorMessage = error.response?.data?.message || error.message || 'An error occurred'
-    const errorData = {
-      message: errorMessage,
-      status: error.response?.status,
-      data: error.response?.data
-    }
+    const err = new Error(errorMessage)
+    err.status = error.response?.status
+    err.data = error.response?.data
 
-    return Promise.reject(errorData)
+    throw err
   }
 )
 

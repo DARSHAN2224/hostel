@@ -251,6 +251,14 @@ server/
 | Read Operations | 200 requests | 15 minutes |
 | Write Operations | 30 requests | 15 minutes |
 
+## ⚡ Development vs Production Rate Limits
+
+In development and non-production environments, API rate limits are automatically relaxed to avoid blocking local testing and frontend development. This means you can make many more requests per window (e.g., 1000+ per 15 minutes) without hitting 429 errors. Authentication endpoints are also much more permissive in dev.
+
+**In production, strict rate limits apply as documented above.**
+
+This behavior is controlled in `server/src/middleware/security.js` and requires no extra configuration. If you need to test production-like limits locally, set `NODE_ENV=production` in your `.env` file.
+
 ## 🌍 Environment Variables
 
 Create a `.env` file in the server directory:

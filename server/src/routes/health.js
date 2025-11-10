@@ -1,3 +1,4 @@
+/* eslint-env node */
 import express from 'express';
 import mongoose from 'mongoose';
 import { ApiResponse } from '../utils/ApiResponse.js';
@@ -19,12 +20,12 @@ router.get(
     const healthData = {
       status: 'OK',
       timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
+      uptime: globalThis.process?.uptime ? globalThis.process.uptime() : 0,
+      environment: (globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV) || 'development',
       server: {
-        nodeVersion: process.version,
-        platform: process.platform,
-        architecture: process.arch,
+        nodeVersion: globalThis.process?.version || 'unknown',
+        platform: globalThis.process?.platform || 'unknown',
+        architecture: globalThis.process?.arch || 'unknown',
         memory: {
           total: `${Math.round(os.totalmem() / 1024 / 1024)} MB`,
           free: `${Math.round(os.freemem() / 1024 / 1024)} MB`,
@@ -47,7 +48,7 @@ router.get(
     // If database is not connected, return 503
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json(
-        new ApiResponse(503, healthData, 'Service Unavailable - Database not connected', false)
+        new ApiResponse(503, healthData, 'Service Unavailable - Database not connected')
       );
     }
 
@@ -92,7 +93,7 @@ router.get(
 
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json(
-        new ApiResponse(503, dbHealth, 'Database not connected', false)
+        new ApiResponse(503, dbHealth, 'Database not connected')
       );
     }
 

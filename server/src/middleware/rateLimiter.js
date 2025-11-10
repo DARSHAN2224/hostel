@@ -8,12 +8,8 @@ const rateLimitHandler = (req, res) => {
   res.status(429).json(
     new ApiResponse(
       429,
-      null,
-      'Too many requests from this IP, please try again later.',
-      false,
-      {
-        retryAfter: res.getHeader('Retry-After'),
-      }
+      { retryAfter: res.getHeader('Retry-After') },
+      'Too many requests from this IP, please try again later.'
     )
   );
 };

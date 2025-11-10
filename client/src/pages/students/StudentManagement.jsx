@@ -9,6 +9,7 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   UserPlusIcon,
+  UserIcon,
   PencilIcon,
   TrashIcon,
   EyeIcon,
@@ -42,13 +43,25 @@ export default function StudentManagement() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editData, setEditData] = useState({})
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [addData, setAddData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    student: {
+      rollNumber: '',
+      year: '',
+      department: '',
+      hostelBlock: ''
+    }
+  })
 
   const fetchStudents = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await studentService.getStudents(filters)
-      
-      // Handle different response structures and ensure we get an array
+      const response = await studentService.getAll(filters)
+      // Robustly extract student array from any backend response structure
       let studentList = []
       if (Array.isArray(response)) {
         studentList = response
@@ -58,8 +71,11 @@ export default function StudentManagement() {
         studentList = response.students
       } else if (response?.data && Array.isArray(response.data)) {
         studentList = response.data
+      } else if (Array.isArray(response?.data?.data)) {
+        studentList = response.data.data
+      } else if (Array.isArray(response?.data)) {
+        studentList = response.data
       }
-      
       setStudents(studentList)
     } catch (error) {
       console.error('Failed to fetch students:', error)
@@ -114,8 +130,13 @@ export default function StudentManagement() {
       setSelectedStudent(null)
       setEditData({})
       fetchStudents()
-    } catch {
-      toast.error('Failed to update student')
+    } catch (err) {
+      let msg = err.response?.data?.message || 'Failed to update student';
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 
@@ -148,9 +169,14 @@ export default function StudentManagement() {
       setShowDeleteModal(false)
       setSelectedStudent(null)
       fetchStudents() // Refresh the list
-    } catch (error) {
-      console.error('Failed to delete student:', error)
-      toast.error(error.response?.data?.message || 'Failed to delete student')
+    } catch (err) {
+      console.error('Failed to delete student:', err)
+      let msg = err.response?.data?.message || 'Failed to delete student';
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 
@@ -302,6 +328,7 @@ export default function StudentManagement() {
             icon={UserPlusIcon}
             variant="primary"
             className="shadow-lg shadow-blue-500/30"
+            onClick={() => setShowAddModal(true)}
           >
             Add Student
           </Button>
@@ -489,6 +516,65 @@ export default function StudentManagement() {
             </ModalFooter>
           </div>
         )}
+      </Modal>
+
+      {/* Add Student Modal */}
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add Student"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="First Name" value={addData.firstName} onChange={(e)=>setAddData(prev=>({...prev, firstName: e.target.value}))} />
+            <Input label="Last Name" value={addData.lastName} onChange={(e)=>setAddData(prev=>({...prev, lastName: e.target.value}))} />
+          </div>
+          <Input label="Email" type="email" value={addData.email} onChange={(e)=>setAddData(prev=>({...prev, email: e.target.value}))} />
+          <Input label="Password" type="password" value={addData.password} onChange={(e)=>setAddData(prev=>({...prev, password: e.target.value}))} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Register Number" value={addData.student.rollNumber} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, rollNumber: e.target.value}}))} />
+            <Input label="Year" value={addData.student.year} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, year: e.target.value}}))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Department" value={addData.student.department} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, department: e.target.value}}))} />
+            <Input label="Hostel Block" value={addData.student.hostelBlock} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, hostelBlock: e.target.value}}))} />
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={()=>setShowAddModal(false)}>Cancel</Button>
+            <Button variant="primary" onClick={async ()=>{
+              try{
+                // Compose payload expected by managed create endpoint
+                const payload = {
+                  firstName: addData.firstName,
+                  lastName: addData.lastName,
+                  email: addData.email,
+                  password: addData.password,
+                  role: 'student',
+                  student: {
+                    rollNumber: addData.student.rollNumber,
+                    year: addData.student.year,
+                    department: addData.student.department,
+                    hostelBlock: addData.student.hostelBlock
+                  }
+                }
+                await studentService.create(payload)
+                toast.success('Student created successfully')
+                setShowAddModal(false)
+                setAddData({ firstName: '', lastName: '', email: '', password: '', student: { rollNumber: '', year: '', department: '', hostelBlock: '' } })
+                fetchStudents()
+              }catch(err){
+                console.error('Failed to create student:', err)
+                let msg = err.response?.data?.message || 'Failed to create student';
+                const errorsArr = err.response?.data?.errors;
+                if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+                  msg = errorsArr[0].message;
+                }
+                toast.error(msg);
+              }
+            }}>Create</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Delete Confirmation Modal */}

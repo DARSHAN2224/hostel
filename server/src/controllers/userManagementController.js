@@ -292,10 +292,16 @@ export const listUsers = asyncHandler(async (req, res) => {
     const Model = ModelMap[r]
     if (!Model) return { items: [], total: 0 }
     const query = buildQuery()
+    if (r === 'warden') {
+      console.log('Warden fetch query:', JSON.stringify(query))
+    }
     const [items, total] = await Promise.all([
       Model.find(query).sort({ createdAt: -1 }).skip(skip).limit(take),
       Model.countDocuments(query),
     ])
+    if (r === 'warden') {
+      console.log('Wardens found:', items.length)
+    }
     return { items: items.map(u => toUserDTO(u, r)), total }
   }
 

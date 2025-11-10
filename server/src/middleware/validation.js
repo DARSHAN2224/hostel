@@ -42,10 +42,9 @@ export const validate = (schema, property = 'body') => {
         },
       });
 
+      // Return structured validation errors in the `data` field so clients can show details
       return res.status(400).json(
-        new ApiResponse(400, null, 'Validation Error', false, {
-          errors: errorMessages,
-        })
+        new ApiResponse(400, { errors: errorMessages }, 'Validation Error')
       );
     }
 

@@ -12,19 +12,37 @@ const NotificationBell = () => {
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const dropdownRef = useRef(null)
+  const inFlightRef = useRef(false)
+  const abortControllerRef = useRef(null)
 
   // Fetch notifications and unread count
   const fetchNotifications = async () => {
+    // Prevent overlapping requests
+    if (inFlightRef.current) return
+    inFlightRef.current = true
+
+    // Abort previous controller and create a fresh one
     try {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
       const [notifResponse, countResponse] = await Promise.all([
-        notificationService.getNotifications({ limit: 10 }),
-        notificationService.getUnreadCount()
+        notificationService.getNotifications({ limit: 10 }, { signal: controller.signal }),
+        notificationService.getUnreadCount({ signal: controller.signal })
       ])
-      
-      setNotifications(notifResponse.data?.data || notifResponse.data || [])
-      setUnreadCount(countResponse.data?.unreadCount || 0)
+
+      setNotifications(notifResponse.data?.data || notifResponse.data || notifResponse || [])
+      setUnreadCount(countResponse.data?.unreadCount || countResponse.data || 0)
     } catch (_error) {
-      console.error('Failed to fetch notifications:', _error)
+      // Ignore abort/cancel errors, suppress log for those
+      if (!(_error && (_error.name === 'CanceledError' || _error.name === 'AbortError' || _error.message === 'canceled' || _error.code === 'ERR_CANCELED'))) {
+        console.error('Failed to fetch notifications:', _error)
+      }
+    } finally {
+      inFlightRef.current = false
     }
   }
 
@@ -32,7 +50,10 @@ const NotificationBell = () => {
   useEffect(() => {
     fetchNotifications()
     const interval = setInterval(fetchNotifications, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      abortControllerRef.current?.abort()
+    }
   }, [])
 
   // Close dropdown when clicking outside

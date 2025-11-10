@@ -82,10 +82,18 @@ export const setupSecurity = (app) => {
   app.use(cors(corsOptions))
 
   // General rate limiting
-  app.use('/api/', createRateLimiter())
-
-  // Stricter rate limiting for auth endpoints
-  app.use('/api/auth/', createRateLimiter(15 * 60 * 1000, 20)) // 20 requests per 15 minutes
+  // Relax limits in non-production to avoid blocking local/dev workflows
+  if (config.nodeEnv === 'production') {
+    app.use('/api/', createRateLimiter())
+    // Stricter rate limiting for auth endpoints in production
+    app.use('/api/auth/', createRateLimiter(15 * 60 * 1000, 20)) // 20 requests per 15 minutes
+  } else {
+    // Development / staging: make limits permissive (or rely on env overrides)
+    const devMax = Math.max(config.rateLimit.max || 100, 1000)
+    app.use('/api/', createRateLimiter(config.rateLimit.windowMs, devMax))
+    // Relax auth limits in dev so testing doesn't get blocked
+    app.use('/api/auth/', createRateLimiter(15 * 60 * 1000, 100))
+  }
 
   // Body parser limits
   app.use(express.json({ limit: '10mb' }))

@@ -3,7 +3,7 @@
  * Manage all wardens with advanced search, filters, and actions
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
@@ -51,29 +51,54 @@ export default function WardenManagement() {
     hostelType: '',
     status: 'active'
   })
+  const inFlightRef = useRef(false)
 
   const fetchWardens = useCallback(async () => {
+    // Prevent overlapping requests (e.g., StrictMode double-invoke)
+    if (inFlightRef.current) return
+    inFlightRef.current = true
+
     try {
       setLoading(true)
-      
+
       const filterParams = {}
       if (filters.hostelType) filterParams.hostelType = filters.hostelType
       if (filters.hostelBlock) filterParams.hostelBlock = filters.hostelBlock
-      
-      const response = await wardenService.getWardens(filterParams)
-      
-      // Transform backend data to match frontend structure
-      const transformedWardens = response.map(warden => ({
-        _id: warden._id,
-        name: `${warden.firstName} ${warden.lastName}`.trim(),
-        email: warden.email,
-        phone: warden.phone || 'N/A',
-        hostelType: warden.hostelType,
-        hostelBlock: warden.assignedHostelBlocks?.[0]?.blockName || 'N/A',
-        status: warden.status || 'active',
-        assignedStudents: warden.assignedHostelBlocks?.[0]?.currentOccupancy || 0
-      }))
-      
+
+  const response = await wardenService.getWardens(filterParams)
+  console.log('Raw warden API response:', response)
+  // Transform backend data to match frontend structure, robust to missing/mismatched fields
+  const transformedWardens = response.map(warden => {
+        // Try to get hostelBlock from multiple possible fields
+        let hostelBlock = 'N/A';
+        if (Array.isArray(warden.assignedHostelBlocks) && warden.assignedHostelBlocks.length > 0) {
+          hostelBlock = warden.assignedHostelBlocks[0].blockName || warden.assignedHostelBlocks[0].hostelBlock || 'N/A';
+        } else if (warden.block) {
+          hostelBlock = warden.block;
+        } else if (warden.hostelBlock) {
+          hostelBlock = warden.hostelBlock;
+        }
+
+        // Try to get assignedStudents from multiple possible fields
+        let assignedStudents = 0;
+        if (Array.isArray(warden.assignedHostelBlocks) && warden.assignedHostelBlocks.length > 0) {
+          assignedStudents = warden.assignedHostelBlocks[0].currentOccupancy || 0;
+        } else if (typeof warden.assignedStudents === 'number') {
+          assignedStudents = warden.assignedStudents;
+        }
+
+        return {
+          _id: warden._id,
+          name: `${warden.firstName || ''} ${warden.lastName || ''}`.trim() || warden.name || 'N/A',
+          email: warden.email,
+          phone: warden.phone || 'N/A',
+          hostelType: warden.hostelType || warden.type || 'N/A',
+          hostelBlock,
+          status: warden.status || 'active',
+          assignedStudents
+        };
+      });
+
       setWardens(transformedWardens)
     } catch (error) {
       console.error('Failed to fetch wardens:', error)
@@ -81,6 +106,7 @@ export default function WardenManagement() {
       setWardens([])
     } finally {
       setLoading(false)
+      inFlightRef.current = false
     }
   }, [filters])
 
@@ -162,7 +188,13 @@ export default function WardenManagement() {
       fetchWardens()
     } catch (error) {
       console.error('Failed to add warden:', error)
-      toast.error(error.response?.data?.message || 'Failed to add warden')
+      // Try to extract the most specific backend validation error
+      let msg = error.response?.data?.message || 'Failed to add warden';
+      const errorsArr = error.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 

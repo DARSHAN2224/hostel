@@ -106,7 +106,7 @@ const hodController = {
   // Get all HODs (Super Admin only)
   async getAllHods(req, res) {
     try {
-      if (req.user.role !== 'super_admin') {
+      if (req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Forbidden' });
       }
       const hods = await Hod.find().select('-password');

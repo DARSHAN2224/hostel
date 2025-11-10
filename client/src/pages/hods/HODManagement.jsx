@@ -52,32 +52,8 @@ export default function HODManagement() {
   const fetchHODs = useCallback(async () => {
     try {
       setLoading(true)
-      // TODO: Replace with actual API call when backend endpoint is ready
-      // const response = await hodService.getHODs(filters)
-      
-      // Mock data for demonstration
-      const mockHODs = [
-        {
-          _id: '1',
-          name: 'Dr. Priya Desai',
-          email: 'priya.desai@college.edu',
-          phone: '+91 9876543220',
-          department: 'Computer Science',
-          status: 'active',
-          assignedStudents: 450
-        },
-        {
-          _id: '2',
-          name: 'Prof. Suresh Nair',
-          email: 'suresh.nair@college.edu',
-          phone: '+91 9876543221',
-          department: 'Electronics',
-          status: 'active',
-          assignedStudents: 380
-        }
-      ]
-      
-      setHods(mockHODs)
+      const { hods } = (await (await import('../../services/hodService')).hodService.getAll()).data || {};
+      setHods(hods || [])
     } catch (error) {
       console.error('Failed to fetch HODs:', error)
       toast.error('Failed to load HODs')
@@ -143,9 +119,14 @@ export default function HODManagement() {
       setSelectedHOD(null)
       setEditData({})
       fetchHODs()
-    } catch (error) {
-      console.error('Failed to update HOD:', error)
-      toast.error('Failed to update HOD')
+    } catch (err) {
+      console.error('Failed to update HOD:', err)
+      let msg = err.response?.data?.message || 'Failed to update HOD';
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 
@@ -163,9 +144,14 @@ export default function HODManagement() {
         status: 'active'
       })
       fetchHODs()
-    } catch (error) {
-      console.error('Failed to add HOD:', error)
-      toast.error('Failed to add HOD')
+    } catch (err) {
+      console.error('Failed to add HOD:', err)
+      let msg = err.response?.data?.message || 'Failed to add HOD';
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 
@@ -177,9 +163,14 @@ export default function HODManagement() {
       setShowDeleteModal(false)
       setSelectedHOD(null)
       fetchHODs()
-    } catch (error) {
-      console.error('Failed to delete HOD:', error)
-      toast.error('Failed to delete HOD')
+    } catch (err) {
+      console.error('Failed to delete HOD:', err)
+      let msg = err.response?.data?.message || 'Failed to delete HOD';
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 

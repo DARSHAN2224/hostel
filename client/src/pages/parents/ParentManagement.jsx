@@ -43,9 +43,25 @@ export default function ParentManagement() {
         search: searchQuery,
         limit: 100
       })
-      setParents(response.data?.data || response.data || [])
+      // Robustly extract parent array from any backend response structure
+      let parentList = [];
+      if (Array.isArray(response)) {
+        parentList = response;
+      } else if (response?.data?.parents && Array.isArray(response.data.parents)) {
+        parentList = response.data.parents;
+      } else if (response?.parents && Array.isArray(response.parents)) {
+        parentList = response.parents;
+      } else if (response?.data && Array.isArray(response.data)) {
+        parentList = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        parentList = response.data.data;
+      } else if (Array.isArray(response?.data)) {
+        parentList = response.data;
+      }
+      setParents(parentList)
     } catch {
       toast.error('Failed to fetch parents')
+      setParents([])
     } finally {
       setLoading(false)
     }
@@ -64,8 +80,13 @@ export default function ParentManagement() {
       setIsModalOpen(false)
       resetForm()
       fetchParents()
-    } catch {
-      toast.error(selectedParent ? 'Failed to update parent' : 'Failed to create parent')
+    } catch (err) {
+      let msg = err.response?.data?.message || (selectedParent ? 'Failed to update parent' : 'Failed to create parent');
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 
@@ -90,8 +111,13 @@ export default function ParentManagement() {
       await parentService.deleteParent(parentId)
       toast.success('Parent deleted successfully')
       fetchParents()
-    } catch {
-      toast.error('Failed to delete parent')
+    } catch (err) {
+      let msg = err.response?.data?.message || 'Failed to delete parent';
+      const errorsArr = err.response?.data?.errors;
+      if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
+        msg = errorsArr[0].message;
+      }
+      toast.error(msg);
     }
   }
 

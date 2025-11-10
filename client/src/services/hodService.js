@@ -6,6 +6,13 @@ import apiClient from './api'
 
 export const hodService = {
   /**
+   * Get all HODs (admin/super admin)
+   * @returns {Promise}
+   */
+  getAll: async () => {
+    return await apiClient.get('/hods/all');
+  },
+  /**
    * HOD login
    * @param {Object} credentials - { email, password }
    * @returns {Promise}
