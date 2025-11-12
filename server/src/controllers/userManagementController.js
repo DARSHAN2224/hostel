@@ -1,9 +1,11 @@
-import { Student, Warden, Admin, Security, Parent } from '../models/index.js'
+import { Student, Warden, Admin, Security, Parent, Credential } from '../models/index.js'
 import Hod from '../models/Hod.js'
+import mongoose from 'mongoose'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { AppError } from '../middleware/errorHandler.js'
 import generateVerificationCode from '../utils/generateVerificationCode.js'
-import { sendVerificationEmail } from '../services/emailService.js'
+import { sendVerificationEmail, sendNotificationEmail } from '../services/emailService.js'
+import { CREDENTIALS_EMAIL_TEMPLATE } from '../utils/emailTemplates.js'
 import { ApiResponse } from '../utils/ApiResponse.js'
 import { config } from '../config/config.js'
 import { deleteOldProfilePicture } from '../middleware/upload.js'
@@ -20,8 +22,10 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
   const creatorRole = req.user?.role
   const { role, email, password, ...rest } = req.body
 
-  if (!role || !email || !password) {
-    return next(new AppError('role, email, and password are required', 400))
+  // role and email are always required. Password may be omitted when an admin
+  // creates the user (the server will generate a compliant password).
+  if (!role || !email) {
+    return next(new AppError('role and email are required', 400))
   }
 
   // Authorization: who can create what
@@ -59,6 +63,21 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     isEmailVerified: false,
     emailVerificationToken: verificationCode,
     emailVerificationExpires: verificationExpires,
+  }
+
+  // If admin is creating the user and didn't provide a password, generate one that conforms to password rules
+  const generateRandomPassword = (len = 10) => {
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    const lower = 'abcdefghijklmnopqrstuvwxyz'
+    const digits = '0123456789'
+    const all = upper + lower + digits
+    // Ensure at least one of each required character class
+    let pw = ''
+    pw += upper[Math.floor(Math.random() * upper.length)]
+    pw += lower[Math.floor(Math.random() * lower.length)]
+    pw += digits[Math.floor(Math.random() * digits.length)]
+    for (let i = 3; i < len; i++) pw += all[Math.floor(Math.random() * all.length)]
+    return pw.split('').sort(() => 0.5 - Math.random()).join('')
   }
 
   let parentDetails;
@@ -138,93 +157,157 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const user = await UserModel.create(userData)
+  // Enforce password presence for non-admin creators (warden must supply password)
+  if (req.user?.role !== 'admin' && !userData.password) {
+    return next(new AppError('Password is required when creating users (unless created by admin)', 400))
+  }
 
-  // Automatically create parent record if student has parent details
+  // If creator is admin and no password provided, generate one and force password change on first login
+  let generatedPassword = null
+  if (req.user?.role === 'admin' && !userData.password) {
+    generatedPassword = generateRandomPassword(10)
+    userData.password = generatedPassword
+    userData.mustChangePassword = true
+  }
+
+  // Use a transaction for user + parent creation to ensure atomicity where possible.
+  let user = null
   let parentRecord = null
-  if (role === 'student' && parentDetails) {
-    try {
-      // Extract parent information from parentDetails
-  const { guardianPhone, guardianEmail, fatherName } = parentDetails
-      
-      if (guardianPhone) {
-        // Check if parent already exists by phone
-        let parent = await Parent.findByPhone(guardianPhone)
-        
-        if (!parent) {
-          // Create new parent record
-          const addr = userData?.permanentAddress || {}
-          const parentData = {
-            firstName: fatherName || 'Guardian',
-            lastName: user.lastName,
-            primaryPhone: guardianPhone,
-            email: guardianEmail || undefined,
-            relationshipToStudent: fatherName ? 'father' : 'guardian',
-            address: {
-              city: addr.city || 'To be updated',
-              state: addr.state || 'To be updated',
-              zipCode: addr.zipCode || '000000',
-              street: addr.street || undefined,
-            },
-            students: [{
+  const session = await mongoose.startSession()
+  try {
+    session.startTransaction()
+
+    // Create user within the session
+    user = await new UserModel(userData).save({ session })
+
+    // Automatically create parent record if student has parent details
+    if (role === 'student' && parentDetails) {
+      try {
+        const { guardianPhone, guardianEmail, fatherName } = parentDetails
+        if (guardianPhone) {
+          // Check if parent already exists by phone (within session-aware query)
+          let parent = await Parent.findOne({ $or: [{ primaryPhone: guardianPhone }, { secondaryPhone: guardianPhone }] }).session(session)
+
+          if (!parent) {
+            const addr = userData?.permanentAddress || {}
+            const parentData = {
+              firstName: fatherName || 'Guardian',
+              lastName: user.lastName,
+              primaryPhone: guardianPhone,
+              email: guardianEmail || undefined,
+              relationshipToStudent: fatherName ? 'father' : 'guardian',
+              address: {
+                city: addr.city || 'To be updated',
+                state: addr.state || 'To be updated',
+                zipCode: addr.zipCode || '000000',
+                street: addr.street || undefined,
+              },
+              students: [{
+                student: user._id,
+                studentId: user.studentId,
+                rollNumber: user.rollNumber,
+                relationship: fatherName ? 'father' : 'guardian',
+                isPrimaryContact: true,
+                canApproveOutpass: true,
+              }],
+              verification: {
+                verifiedBy: req.user.id,
+                verificationModel: creatorRole === 'admin' ? 'Admin' : 'Warden',
+                verificationDate: new Date(),
+              },
+            }
+
+            parent = await new Parent(parentData).save({ session })
+          } else {
+            // Parent exists, add this student to their record using instance method (session-aware)
+            parent.students.push({
               student: user._id,
               studentId: user.studentId,
               rollNumber: user.rollNumber,
               relationship: fatherName ? 'father' : 'guardian',
-              isPrimaryContact: true,
+              isPrimaryContact: parent.students.length === 0,
               canApproveOutpass: true,
-            }],
-            verification: {
-              verifiedBy: req.user.id,
-              verificationModel: creatorRole === 'admin' ? 'Admin' : 'Warden',
-              verificationDate: new Date(),
-            },
+            })
+            await parent.save({ session })
           }
-          
-          parent = await Parent.create(parentData)
-        } else {
-          // Parent exists, add this student to their record
-          await parent.addStudent({
-            student: user._id,
-            studentId: user.studentId,
-            rollNumber: user.rollNumber,
-            relationship: fatherName ? 'father' : 'guardian',
-            isPrimaryContact: parent.students.length === 0,
-            canApproveOutpass: true,
-          })
+
+          parentRecord = parent
+
+          // Update student with parent reference
+          user.parentId = parent._id
+          await user.save({ session, validateBeforeSave: false })
         }
-        
-        parentRecord = parent
-        
-        // Update student with parent reference
-        user.parentId = parent._id
-        await user.save({ validateBeforeSave: false })
+      } catch (parentError) {
+        // If parent creation fails, abort the transaction so no partial records persist
+        await session.abortTransaction()
+        session.endSession()
+        console.error('Failed to create parent record inside transaction:', parentError)
+        throw parentError
       }
-    } catch (parentError) {
-      // Log parent creation error but don't fail student creation
-      console.error('Failed to create parent record:', parentError)
     }
+
+    // Commit transaction
+    await session.commitTransaction()
+    session.endSession()
+  } catch (txErr) {
+    // Ensure session is cleaned up
+    try {
+      await session.abortTransaction()
+    } catch (abortErr) {
+      console.warn('Failed to abort transaction:', abortErr)
+    }
+    session.endSession()
+    // Re-throw so outer error handling applies
+    throw txErr
   }
 
   try {
     const displayName = user.name || user.firstName || 'User'
+    // If admin generated a password, email the credentials to the user (non-critical)
+    if (generatedPassword) {
+      const credText = `Your account has been created.\nEmail: ${user.email}\nPassword: ${generatedPassword}\nPlease verify your email using the verification code sent to you and change your password after login.`
+      const clientUrl = config.app?.clientUrl || 'http://localhost:5173'
+      const html = CREDENTIALS_EMAIL_TEMPLATE
+        .replace('{username}', user.firstName || user.name || 'User')
+        .replace('{email}', user.email)
+        .replace('{password}', generatedPassword)
+        .replace('{clientUrl}', clientUrl)
+      // Send a notification with credentials (non-critical; don't throw on failure)
+      try {
+        await sendNotificationEmail(user.email, 'Your account credentials - Hostel Management', credText, html)
+      } catch (emailErr) {
+        console.warn('Failed to send credentials email:', emailErr)
+      }
+    }
+
     await sendVerificationEmail(user.email, displayName, verificationCode)
     
-    const responseData = config.nodeEnv === 'development' ? { verificationCode } : null
-    if (parentRecord && config.nodeEnv === 'development') {
-      responseData.parentCreated = true
-      responseData.parentId = parentRecord._id
+    // Persist generated password for admin retrieval if it was generated
+    if (generatedPassword) {
+      try {
+        await Credential.create({ userId: user._id, role, password: generatedPassword })
+      } catch (credErr) {
+        console.warn('Failed to persist generated credential:', credErr)
+      }
     }
-    
+
+    // Prepare response data with created student and parent info (safe to return)
+    const responseData = {
+      verificationCode: config.nodeEnv === 'development' ? verificationCode : undefined,
+      generatedPassword: generatedPassword || undefined,
+      student: user ? (typeof user.toJSON === 'function' ? user.toJSON() : user) : null,
+      parent: parentRecord ? (typeof parentRecord.toJSON === 'function' ? parentRecord.toJSON() : parentRecord) : null
+    }
+
     return res.status(201).json(
       new ApiResponse(201, responseData, `User created${parentRecord ? ' and parent record created/updated' : ''} and verification email sent`)
     )
   } catch (err) {
     if (config.nodeEnv === 'development') {
-      const responseData = { verificationCode }
-      if (parentRecord) {
-        responseData.parentCreated = true
-        responseData.parentId = parentRecord._id
+      const responseData = {
+        verificationCode,
+        student: user ? (typeof user.toJSON === 'function' ? user.toJSON() : user) : null,
+        parent: parentRecord ? (typeof parentRecord.toJSON === 'function' ? parentRecord.toJSON() : parentRecord) : null
       }
       return res.status(201).json(
         new ApiResponse(201, responseData, `User created${parentRecord ? ' and parent record created/updated' : ''}. Email unavailable - verification code returned in response.`)
@@ -321,7 +404,35 @@ export const listUsers = asyncHandler(async (req, res) => {
     total = results.reduce((sum, r) => sum + r.total, 0)
   }
 
+  // If requester is admin, attach any stored generated passwords for users
+  if (req.user?.role === 'admin' && Array.isArray(data) && data.length > 0) {
+    try {
+      const ids = data.map(d => d._id)
+      const creds = await Credential.find({ userId: { $in: ids } })
+      const credMap = {}
+      creds.forEach(c => { credMap[String(c.userId)] = c.password })
+      data = data.map(d => ({ ...d, generatedPassword: credMap[d._id] || undefined }))
+    } catch (attachErr) {
+      console.warn('Failed to attach generated credentials to user list:', attachErr)
+    }
+  }
+
   res.json(new ApiResponse(200, { users: data, total }, 'Users retrieved'))
+})
+
+// GET /users/:role/:id/credential - admin-only: retrieve stored generated password for a user
+export const getCredential = asyncHandler(async (req, res, next) => {
+  if (req.user?.role !== 'admin') return next(new AppError('Forbidden', 403))
+  const { role, id } = req.params
+  if (!role || !id) return next(new AppError('role and id are required', 400))
+
+  const cred = await Credential.findOne({ userId: id, role })
+  if (!cred) return next(new AppError('Credential not found', 404))
+
+  // Audit note: in production, consider logging access to credentials in an audit store
+  console.info(`Admin ${req.user?.id} retrieved credential for user ${id} (role: ${role})`)
+
+  res.json(new ApiResponse(200, { password: cred.password }, 'Credential retrieved'))
 })
 
 // GET /users/stats - counts per role and totals
@@ -406,4 +517,4 @@ export const uploadProfilePicture = asyncHandler(async (req, res, next) => {
   res.json(new ApiResponse(200, { profilePicture: profilePicturePath }, 'Profile picture uploaded successfully'))
 })
 
-export default { createUserManaged }
+export default { createUserManaged, getCredential }

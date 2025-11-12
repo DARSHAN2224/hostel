@@ -7,6 +7,15 @@ const HodSchema = new Schema({
   password: { type: String, required: true },
   department: { type: String, required: true },
   phone: { type: String },
+  // Email verification fields (align with other auth-enabled models)
+  isEmailVerified: { type: Boolean, default: false },
+  emailVerificationToken: String,
+  emailVerificationExpires: Date,
+  // Force change password after admin-created accounts
+  mustChangePassword: { type: Boolean, default: false },
+  // Password reset fields
+  passwordResetToken: String,
+  passwordResetExpires: Date,
   createdBy: { type: Schema.Types.ObjectId, ref: 'Admin' }, // Super admin who created
   updatedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
   createdAt: { type: Date, default: Date.now },

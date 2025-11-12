@@ -140,3 +140,34 @@ export const WELCOME_PAGE_TEMPLATE=`<!DOCTYPE html>
 </body>
 </html>
 `
+
+export const CREDENTIALS_EMAIL_TEMPLATE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Account Credentials</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(to right, #4CAF50, #45a049); padding: 20px; text-align: center;">
+    <h1 style="color: white; margin: 0;">Your Account Credentials</h1>
+  </div>
+  <div style="background-color: #f9f9f9; padding: 20px; border-radius: 0 0 5px 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+    <p>Hello, {username}</p>
+    <p>An account has been created for you on the Hostel Management System. Use the credentials below to sign in.</p>
+    <div style="background: #fff; padding: 16px; border-radius: 8px; margin: 16px 0;">
+      <p style="margin: 4px 0;"><strong>Email:</strong> {email}</p>
+      <p style="margin: 4px 0;"><strong>Password:</strong> {password}</p>
+    </div>
+    <p>Please verify your email using the verification code sent to you and change your password after first login.</p>
+    <p>You can sign in here: <a href="{clientUrl}" style="color:#4CAF50">{clientUrl}</a></p>
+    <p>If you did not expect this email, please contact your administrator.</p>
+    <p>Best regards,<br>Your App Team</p>
+  </div>
+  <div style="text-align: center; margin-top: 20px; color: #888; font-size: 0.8em;">
+    <p>This is an automated message, please do not reply to this email.</p>
+  </div>
+</body>
+</html>
+`;

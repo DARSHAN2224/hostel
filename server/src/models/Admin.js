@@ -62,6 +62,11 @@ const adminSchema = new mongoose.Schema({
     enum: Object.values(USER_STATUS),
     default: USER_STATUS.ACTIVE
   },
+  // Force user to change password on first login (set by admin when created)
+  mustChangePassword: {
+    type: Boolean,
+    default: false
+  },
   
   // Permissions and Access Control
   permissions: {

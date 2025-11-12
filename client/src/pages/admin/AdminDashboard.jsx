@@ -19,6 +19,7 @@ import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon
 } from '@heroicons/react/24/outline'
+import { EyeIcon } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Card'
 import Button from '../../components/ui/Button'
@@ -28,9 +29,10 @@ import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
-import { USER_ROLES, USER_STATUS, HOSTEL_TYPES } from '../../constants'
+import { USER_ROLES, USER_STATUS, HOSTEL_TYPES, DEPARTMENTS, HOSTEL_BLOCKS, VALIDATION, COURSES } from '../../constants'
 import { getUserStats, getUsers, createUser, updateUser, deleteUser } from '../../services/userService'
 import toast from 'react-hot-toast'
+// no direct auth selector needed in this dashboard (role-specific pages handle credential display)
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
@@ -51,6 +53,9 @@ export default function AdminDashboard() {
     const [showEditModal, setShowEditModal] = useState(false)
     const [selectedUser, setSelectedUser] = useState(null)
     const [editFormData, setEditFormData] = useState(null)
+  const departmentsList = DEPARTMENTS || []
+  const [hostelBlocksList, setHostelBlocksList] = useState(HOSTEL_BLOCKS || [])
+  
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -87,6 +92,36 @@ export default function AdminDashboard() {
     fetchDashboardData()
   }, [fetchDashboardData])
 
+  // Try to fetch departments/hostel-blocks from backend if endpoints exist.
+  // Fall back to constants if the calls fail or endpoints are not present.
+  useEffect(() => {
+    let mounted = true
+    const loadMeta = async () => {
+      try {
+        // Fetch hostel blocks from the server route: /api/v1/auth/hostel-blocks
+        // The server responds with ApiResponse { data: { types, blocks } }
+        const hbRes = await fetch('/api/v1/auth/hostel-blocks')
+        if (mounted && hbRes.ok) {
+          const json = await hbRes.json()
+          const blocksObj = json?.data?.blocks || json?.blocks || null
+          if (blocksObj && typeof blocksObj === 'object') {
+            // Flatten all block arrays into a single list (unique)
+            const all = Object.values(blocksObj).flat()
+            const unique = Array.from(new Set(all))
+            if (unique.length) setHostelBlocksList(unique)
+          }
+        }
+      } catch {
+        // ignore - fallback to constants already set
+      } finally {
+        // nothing else to do; lists already fall back to constants
+      }
+    }
+
+    loadMeta()
+    return () => { mounted = false }
+  }, [])
+
   const handleDeleteUser = async (u) => {
     try {
       const loading = toast.loading('Deleting user...')
@@ -101,11 +136,22 @@ export default function AdminDashboard() {
   const handleCreateUser = async (payload) => {
     try {
       const loading = toast.loading('Creating user...')
-      await createUser(payload)
-      toast.success('User created', { id: loading })
+      const resp = await createUser(payload)
+      // Extract generated password and created user from response (common shapes)
+      const genPwd = resp?.data?.data?.generatedPassword || resp?.data?.generatedPassword
+  // const createdUser = resp?.data?.data?.user || resp?.data?.user || resp?.data
+
+      if (genPwd) {
+        toast.success(`User created — password: ${genPwd}`, { id: loading })
+      } else {
+        toast.success('User created', { id: loading })
+      }
+
       setShowCreateModal(false)
-        setSelectedUser(null)
-      fetchDashboardData()
+      setSelectedUser(null)
+
+      // Refresh stats and users
+      await fetchDashboardData()
     } catch (err) {
       toast.error(err?.message || 'Failed to create user')
     }
@@ -124,6 +170,8 @@ export default function AdminDashboard() {
       toast.error(err?.message || 'Failed to update user')
     }
   }
+
+  // Note: credential retrieval moved to per-role management pages (Student, HOD, Warden)
 
   const openEditModal = (user) => {
     setSelectedUser(user)
@@ -225,7 +273,7 @@ export default function AdminDashboard() {
             <Button
               variant="glass"
               icon={UserPlusIcon}
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => { setSelectedUser({ student: { year: new Date().getFullYear(), yearOfStudy: 1 } }); setShowCreateModal(true) }}
             >
               Create User
             </Button>
@@ -330,7 +378,7 @@ export default function AdminDashboard() {
               <CardHeader>
                 <div className="flex items-center justify-between mb-4">
                   <CardTitle gradient icon={UsersIcon}>User Management</CardTitle>
-                  <Button icon={UserPlusIcon} onClick={() => setShowCreateModal(true)}>
+                  <Button icon={UserPlusIcon} onClick={() => { setSelectedUser({ student: { year: new Date().getFullYear(), yearOfStudy: 1 } }); setShowCreateModal(true) }}>
                     Add User
                   </Button>
                 </div>
@@ -404,6 +452,7 @@ export default function AdminDashboard() {
                                 {user.firstName} {user.lastName}
                               </h4>
                               <p className="text-sm text-slate-600 dark:text-slate-400">{user.email}</p>
+                              {/* Passwords are not shown on the admin dashboard (view them in role-specific management pages) */}
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
@@ -422,6 +471,8 @@ export default function AdminDashboard() {
                                 icon={TrashIcon}
                                 onClick={() => handleDeleteUser(user)}
                               />
+                              {/* Admin-only: show stored generated password */}
+                              {/* password viewing removed from admin dashboard; use role-specific management pages */}
                             </div>
                           </div>
                         </Motion.div>
@@ -448,7 +499,14 @@ export default function AdminDashboard() {
               <Input label="Last Name" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), lastName:e.target.value}))} />
             </div>
             <Input label="Email" type="email" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), email:e.target.value}))} />
-            <Select label="Role" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), role:e.target.value}))}>
+            <Select label="Role" glassmorphic required onChange={(e)=>{
+                const role = e.target.value
+                if (role === USER_ROLES.STUDENT) {
+                  setSelectedUser(prev => ({ ...(prev || {}), role, student: { ...(prev?.student || {}), year: prev?.student?.year || new Date().getFullYear(), yearOfStudy: prev?.student?.yearOfStudy || 1 } }))
+                } else {
+                  setSelectedUser(prev => ({ ...(prev || {}), role }))
+                }
+              }}>
               <option value="">Select Role</option>
               <option value={USER_ROLES.STUDENT}>Student</option>
               <option value={USER_ROLES.WARDEN}>Warden</option>
@@ -456,7 +514,8 @@ export default function AdminDashboard() {
               <option value={USER_ROLES.ADMIN}>Admin</option>
               <option value={USER_ROLES.HOD}>HOD</option>
             </Select>
-            <Input label="Password" type="password" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), password:e.target.value}))} />
+            {/* Password is generated by the system for admin-created users. Leave blank to auto-generate and email credentials. */}
+            <p className="text-sm text-slate-500 dark:text-slate-400">Leave password blank to generate a secure password automatically and email it to the user. They will be required to change it on first login.</p>
 
             {/* Student-specific fields */}
             {selectedUser?.role === USER_ROLES.STUDENT && (
@@ -474,24 +533,37 @@ export default function AdminDashboard() {
                   onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), rollNumber:e.target.value}}))} 
                 />
                 <div className="grid grid-cols-2 gap-4">
-                  <Input 
-                    label="Course" 
-                    glassmorphic 
-                    required 
-                    placeholder="e.g. B.Tech"
-                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), course:e.target.value}}))} 
-                  />
-                  <Select 
-                    label="Year" 
-                    glassmorphic 
-                    required 
-                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), year:Number.parseInt(e.target.value)}}))}
+                  <Select
+                    label="Course"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.course || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), course: e.target.value } }))}
                   >
-                    <option value="">Select Year</option>
-                    <option value="1">1st Year</option>
-                    <option value="2">2nd Year</option>
-                    <option value="3">3rd Year</option>
-                    <option value="4">4th Year</option>
+                    <option value="">Select Course</option>
+                    {COURSES.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </Select>
+                  <Input
+                    label="Academic Year"
+                    type="number"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.year || new Date().getFullYear()}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), year: Number(e.target.value) } }))}
+                  />
+                  <Select
+                    label="Year of Study"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.yearOfStudy || 1}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), yearOfStudy: Number(e.target.value) } }))}
+                  >
+                    <option value="">Select Year of Study</option>
+                    {[1,2,3,4,5,6].map(y => (
+                      <option key={y} value={y}>{`${y}${y===1? 'st': y===2? 'nd': y===3? 'rd':'th'} Year`}</option>
+                    ))}
                   </Select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -504,40 +576,85 @@ export default function AdminDashboard() {
                     <option value="">Select Semester</option>
                     {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
                   </Select>
-                  <Input 
+                  {/* department input removed - we use the select below (keeps UI consistent) */}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Select 
                     label="Department" 
                     glassmorphic 
                     required 
-                    placeholder="e.g. Computer Science"
+                    value={selectedUser?.student?.department || ''}
                     onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), department:e.target.value}}))} 
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+                  >
+                    <option value="">Select Department</option>
+                    {departmentsList.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </Select>
                   <Select 
                     label="Hostel Type" 
                     glassmorphic 
                     required 
+                    value={selectedUser?.student?.hostelType || ''}
                     onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), hostelType:e.target.value}}))}
                   >
                     <option value="">Select Type</option>
                     <option value={HOSTEL_TYPES.BOYS}>Boys Hostel</option>
                     <option value={HOSTEL_TYPES.GIRLS}>Girls Hostel</option>
                   </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Select
+                    label="Hostel Block"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.hostelBlock || ''}
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), hostelBlock:e.target.value}}))}
+                  >
+                    <option value="">Select Block</option>
+                    {hostelBlocksList.map(b => (
+                      <option key={b} value={b}>{`Block ${b}`}</option>
+                    ))}
+                  </Select>
                   <Input 
-                    label="Hostel Block" 
+                    label="Room Number" 
                     glassmorphic 
                     required 
-                    placeholder="e.g. A, B, C"
-                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), hostelBlock:e.target.value}}))} 
+                    placeholder="e.g. 101, 201"
+                    value={selectedUser?.student?.roomNumber || ''}
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), roomNumber:e.target.value}}))} 
                   />
                 </div>
-                <Input 
-                  label="Room Number" 
-                  glassmorphic 
-                  required 
-                  placeholder="e.g. 101, 201"
-                  onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), roomNumber:e.target.value}}))} 
-                />
+                {/* Parent / Guardian Details for Admin create modal */}
+                <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian Details</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Father's Name"
+                    glassmorphic
+                    value={selectedUser?.student?.parentDetails?.fatherName || ''}
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), parentDetails: {...(prev?.student?.parentDetails||{}), fatherName: e.target.value}}}))}
+                  />
+                  <Input
+                    label="Mother's Name"
+                    glassmorphic
+                    value={selectedUser?.student?.parentDetails?.motherName || ''}
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), parentDetails: {...(prev?.student?.parentDetails||{}), motherName: e.target.value}}}))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Guardian Phone"
+                    glassmorphic
+                    value={selectedUser?.student?.parentDetails?.guardianPhone || ''}
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), parentDetails: {...(prev?.student?.parentDetails||{}), guardianPhone: e.target.value}}}))}
+                  />
+                  <Input
+                    label="Guardian Email"
+                    glassmorphic
+                    value={selectedUser?.student?.parentDetails?.guardianEmail || ''}
+                    onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), parentDetails: {...(prev?.student?.parentDetails||{}), guardianEmail: e.target.value}}}))}
+                  />
+                </div>
               </Motion.div>
             )}
 
@@ -549,6 +666,13 @@ export default function AdminDashboard() {
                 className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700"
               >
                 <h4 className="font-semibold text-slate-900 dark:text-white">Warden Details</h4>
+                <Input
+                  label="Phone"
+                  glassmorphic
+                  required
+                  value={selectedUser?.phone || ''}
+                  onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), phone: e.target.value }))}
+                />
                 <Select 
                   label="Hostel Type" 
                   glassmorphic 
@@ -559,6 +683,41 @@ export default function AdminDashboard() {
                   <option value={HOSTEL_TYPES.BOYS}>Boys Hostel</option>
                   <option value={HOSTEL_TYPES.GIRLS}>Girls Hostel</option>
                 </Select>
+                <Select
+                  label="Hostel Block"
+                  glassmorphic
+                  required
+                  value={selectedUser?.warden?.hostelBlock || ''}
+                  onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), warden: {...(prev?.warden||{}), hostelBlock:e.target.value}}))}
+                >
+                  <option value="">Select Block</option>
+                  {hostelBlocksList.map(b => (
+                    <option key={b} value={b}>{`Block ${b}`}</option>
+                  ))}
+                </Select>
+              </Motion.div>
+            )}
+
+            {/* HOD-specific fields */}
+            {selectedUser?.role === USER_ROLES.HOD && (
+              <Motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700"
+              >
+                <h4 className="font-semibold text-slate-900 dark:text-white">HOD Details</h4>
+                <Select
+                  label="Department"
+                  glassmorphic
+                  required
+                  value={selectedUser?.hod?.department || ''}
+                  onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), hod: {...(prev?.hod||{}), department:e.target.value}}))}
+                >
+                  <option value="">Select Department</option>
+                  {departmentsList.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </Select>
               </Motion.div>
             )}
 
@@ -568,7 +727,7 @@ export default function AdminDashboard() {
                 User will receive an email with login credentials and instructions.
               </p>
             </div>
-            <div className="flex items-center gap-3 pt-4">
+                <div className="flex items-center gap-3 pt-4">
               <Button
                 variant="ghost"
                 onClick={() => { setShowCreateModal(false); setSelectedUser(null); }}
@@ -579,20 +738,47 @@ export default function AdminDashboard() {
               <Button
                 icon={UserPlusIcon}
                 className="flex-1"
-                onClick={() => {
-                  if (!selectedUser?.role || !selectedUser?.email || !selectedUser?.password) {
-                    toast.error('Fill all required fields')
-                    return
-                  }
-                  if (selectedUser.role === USER_ROLES.STUDENT) {
-                    const s = selectedUser.student
-                    if (!s?.rollNumber || !s?.course || !s?.year || !s?.semester || !s?.department || !s?.hostelType || !s?.hostelBlock || !s?.roomNumber) {
-                      toast.error('Fill all student details')
-                      return
-                    }
-                  }
-                  handleCreateUser(selectedUser)
-                }}
+                    onClick={() => {
+                      if (!selectedUser?.role || !selectedUser?.email) {
+                        toast.error('Fill all required fields')
+                        return
+                      }
+                      if (selectedUser.role === USER_ROLES.STUDENT) {
+                        const s = selectedUser.student || {}
+                        if (!s?.rollNumber || !s?.course || !s?.year || !s?.yearOfStudy || !s?.semester || !s?.department || !s?.hostelType || !s?.hostelBlock || !s?.roomNumber) {
+                          toast.error('Fill all student details')
+                          return
+                        }
+
+                        // Validate optional parent contact fields (if provided)
+                        const guardianPhone = s?.parentDetails?.guardianPhone?.trim()
+                        const guardianEmail = s?.parentDetails?.guardianEmail?.trim()
+                        if (guardianPhone && !VALIDATION.PHONE_PATTERN.test(guardianPhone)) {
+                          toast.error('Guardian phone must be 10-15 digits')
+                          return
+                        }
+                        if (guardianEmail && !VALIDATION.EMAIL_PATTERN.test(guardianEmail)) {
+                          toast.error('Guardian email is invalid')
+                          return
+                        }
+
+                        // Coerce numeric fields to numbers before sending
+                        const payload = {
+                          ...selectedUser,
+                          student: {
+                            ...s,
+                            year: Number(s.year),
+                            yearOfStudy: Number(s.yearOfStudy),
+                            semester: Number(s.semester)
+                          }
+                        }
+
+                        handleCreateUser(payload)
+                        return
+                      }
+
+                      handleCreateUser(selectedUser)
+                    }}
               >
                 Create User
               </Button>
@@ -609,49 +795,51 @@ export default function AdminDashboard() {
           >
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <Input 
-                  label="First Name" 
-                  glassmorphic 
-                  required 
+                <Input
+                  label="First Name"
+                  glassmorphic
+                  required
                   value={editFormData?.firstName || ''}
-                  onChange={(e)=>setEditFormData(prev=>({...(prev||{}), firstName:e.target.value}))} 
+                  onChange={(e) => setEditFormData(prev => ({ ...(prev || {}), firstName: e.target.value }))}
                 />
-                <Input 
-                  label="Last Name" 
-                  glassmorphic 
-                  required 
+                <Input
+                  label="Last Name"
+                  glassmorphic
+                  required
                   value={editFormData?.lastName || ''}
-                  onChange={(e)=>setEditFormData(prev=>({...(prev||{}), lastName:e.target.value}))} 
+                  onChange={(e) => setEditFormData(prev => ({ ...(prev || {}), lastName: e.target.value }))}
                 />
               </div>
-              <Input 
-                label="Email" 
-                type="email" 
-                glassmorphic 
-                required 
+
+              <Input
+                label="Email"
+                type="email"
+                glassmorphic
+                required
                 value={editFormData?.email || ''}
-                onChange={(e)=>setEditFormData(prev=>({...(prev||{}), email:e.target.value}))} 
+                onChange={(e) => setEditFormData(prev => ({ ...(prev || {}), email: e.target.value }))}
               />
-              <Select 
-                label="Status" 
-                glassmorphic 
-                required 
+
+              <Select
+                label="Status"
+                glassmorphic
+                required
                 value={editFormData?.status || 'active'}
-                onChange={(e)=>setEditFormData(prev=>({...(prev||{}), status:e.target.value}))}
+                onChange={(e) => setEditFormData(prev => ({ ...(prev || {}), status: e.target.value }))}
               >
                 <option value={USER_STATUS.ACTIVE}>Active</option>
                 <option value={USER_STATUS.INACTIVE}>Inactive</option>
                 <option value={USER_STATUS.SUSPENDED}>Suspended</option>
                 <option value={USER_STATUS.PENDING}>Pending</option>
               </Select>
-            
+
               <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
                 <ShieldCheckIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
                 <p className="text-sm text-blue-900 dark:text-blue-100">
                   User role: <strong>{selectedUser?.role}</strong>. Role cannot be changed after creation.
                 </p>
               </div>
-            
+
               <div className="flex items-center gap-3 pt-4">
                 <Button
                   variant="ghost"
@@ -674,7 +862,7 @@ export default function AdminDashboard() {
                   Update User
                 </Button>
               </div>
-              </div>
+            </div>
           </Modal>
       </Motion.div>
     </DashboardLayout>

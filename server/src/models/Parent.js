@@ -221,6 +221,11 @@ const parentSchema = new mongoose.Schema({
     enum: ['active', 'inactive', 'blocked'],
     default: 'active'
   },
+  // Force user to change password on first login (if applicable)
+  mustChangePassword: {
+    type: Boolean,
+    default: false
+  },
   
   // Blocking/Restriction Information
   restrictions: {
@@ -366,10 +371,17 @@ parentSchema.methods.approveOutpass = async function(outpassRequestId, comments 
   this.outpassStats.totalApproved += 1
   this.lastOutpassApproval = new Date()
   this.lastContactDate = new Date()
-  
+
+  // If approver supplied comments, record them as a staff note for audit
+  if (comments) {
+    this.staffNotes.push({ note: `Approved: ${comments}`, addedAt: new Date(), isImportant: false })
+    // keep only last 50 notes
+    if (this.staffNotes.length > 50) this.staffNotes = this.staffNotes.slice(-50)
+  }
+
   // Update average response time (simplified calculation)
   // In real implementation, this would calculate based on actual request time
-  
+
   await this.save({ validateBeforeSave: false })
   return this
 }
@@ -378,7 +390,13 @@ parentSchema.methods.approveOutpass = async function(outpassRequestId, comments 
 parentSchema.methods.rejectOutpass = async function(outpassRequestId, reason = '') {
   this.outpassStats.totalRejected += 1
   this.lastContactDate = new Date()
-  
+
+  // Record rejection reason as a staff note for traceability
+  if (reason) {
+    this.staffNotes.push({ note: `Rejected: ${reason}`, addedAt: new Date(), isImportant: false })
+    if (this.staffNotes.length > 50) this.staffNotes = this.staffNotes.slice(-50)
+  }
+
   await this.save({ validateBeforeSave: false })
   return this
 }

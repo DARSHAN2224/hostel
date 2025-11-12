@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { config } from '../config/config.js'
-import { HOSTEL_TYPES, USER_STATUS, COURSES, YEARS } from '../utils/constants.js'
+import { HOSTEL_TYPES, USER_STATUS } from '../utils/constants.js'
 
 const studentSchema = new mongoose.Schema({
   // Personal Information
@@ -66,11 +66,19 @@ const studentSchema = new mongoose.Schema({
     required: [true, 'Course is required'],
     trim: true
   },
+  // "year" is the Academic Year (e.g., 2025). Use yearOfStudy for 1st/2nd/3rd/4th
   year: {
     type: Number,
     required: [true, 'Academic year is required'],
-    min: [1, 'Year must be at least 1'],
-    max: [6, 'Year cannot exceed 6']
+    min: [2000, 'Academic year seems invalid'],
+    max: [2100, 'Academic year seems invalid']
+  },
+  // yearOfStudy represents which year of the program the student is in (1..6)
+  yearOfStudy: {
+    type: Number,
+    required: [true, 'Year of study is required'],
+    min: [1, 'Year of study must be at least 1'],
+    max: [6, 'Year of study cannot exceed 6']
   },
   semester: {
     type: Number,
@@ -122,6 +130,11 @@ const studentSchema = new mongoose.Schema({
     type: String,
     enum: Object.values(USER_STATUS),
     default: USER_STATUS.ACTIVE
+  },
+  // Force user to change password on first login (set by admin when created)
+  mustChangePassword: {
+    type: Boolean,
+    default: false
   },
   
   // Hostel Information
@@ -227,6 +240,7 @@ studentSchema.index({ studentId: 1 }, { unique: true })
 studentSchema.index({ rollNumber: 1 }, { unique: true })
 studentSchema.index({ hostelBlock: 1, roomNumber: 1 })
 studentSchema.index({ course: 1, year: 1 })
+studentSchema.index({ course: 1, yearOfStudy: 1 })
 studentSchema.index({ status: 1 })
 
 // Virtual for full name
@@ -289,7 +303,7 @@ studentSchema.pre('save', function(next) {
   // Check if required fields for profile completion are filled
   const requiredFields = [
     'firstName', 'lastName', 'email', 'phone', 'studentId', 'rollNumber',
-    'course', 'year', 'semester', 'department', 'dateOfBirth', 'gender',
+    'course', 'year', 'yearOfStudy', 'semester', 'department', 'dateOfBirth', 'gender',
     'hostelType', 'hostelBlock', 'roomNumber'
   ]
   

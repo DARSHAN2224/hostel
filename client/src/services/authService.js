@@ -21,7 +21,8 @@ const authService = {
     return await apiClient.post(API_ENDPOINTS.FORGOT_PASSWORD, { email })
   },
   resetPassword: async (token, password) => {
-    return await apiClient.post(`${API_ENDPOINTS.RESET_PASSWORD}/${token}`, { password })
+    // Backend expects token and newPassword in body
+    return await apiClient.post(API_ENDPOINTS.RESET_PASSWORD, { token, newPassword: password })
   },
   changePassword: async (passwordData) => {
     return await apiClient.put('/auth/change-password', passwordData)
@@ -29,8 +30,11 @@ const authService = {
   updateProfile: async (userData) => {
     return await apiClient.put('/auth/profile', userData)
   },
-  verifyEmail: async (token) => {
-    return await apiClient.get(`${API_ENDPOINTS.VERIFY_EMAIL}/${token}`)
+  verifyEmail: async (email, verificationCode) => {
+    return await apiClient.post(API_ENDPOINTS.VERIFY_EMAIL, { email, verificationCode })
+  },
+  resendVerification: async (email) => {
+    return await apiClient.post(API_ENDPOINTS.RESEND_VERIFICATION, { email })
   },
   registerAdmin: async (adminData) => {
     return await apiClient.post(API_ENDPOINTS.REGISTER_ADMIN, adminData)
@@ -40,6 +44,6 @@ const authService = {
   }
 }
 
-export const { login, register, logout, refreshToken, getCurrentUser, forgotPassword, resetPassword, changePassword, updateProfile, verifyEmail, registerAdmin, getHostelBlocks } = authService
+export const { login, register, logout, refreshToken, getCurrentUser, forgotPassword, resetPassword, changePassword, updateProfile, verifyEmail, resendVerification, registerAdmin, getHostelBlocks } = authService
 
 export default authService

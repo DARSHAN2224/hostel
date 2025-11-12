@@ -130,6 +130,7 @@ class StudentController {
       hostelBlock: req.query.hostelBlock,
       course: req.query.course,
       year: req.query.year ? parseInt(req.query.year) : undefined,
+      yearOfStudy: req.query.yearOfStudy ? parseInt(req.query.yearOfStudy) : undefined,
       status: req.query.status
     }
 
@@ -140,10 +141,24 @@ class StudentController {
     }
 
     const result = await StudentService.getAllStudents(filters, options)
+      let students = result.students
+      // If requester is admin, attach any stored generated passwords for students
+      if (req.user?.role === 'admin' && Array.isArray(students) && students.length > 0) {
+        try {
+          const ids = students.map(s => s._id)
+          const { default: Credential } = await import('../models/Credential.js')
+          const creds = await Credential.find({ userId: { $in: ids } })
+          const credMap = {}
+          creds.forEach(c => { credMap[String(c.userId)] = c.password })
+          students = students.map(s => ({ ...s.toObject ? s.toObject() : s, generatedPassword: credMap[s._id] || undefined }))
+        } catch (attachErr) {
+          console.warn('Failed to attach student credentials:', attachErr)
+        }
+      }
 
-    res.json(
-      new ApiResponse(200, { students: result.students, pagination: result.pagination }, 'Students retrieved successfully')
-    )
+      res.json(
+        new ApiResponse(200, { students, pagination: result.pagination }, 'Students retrieved successfully')
+      )
   })
 
   /**

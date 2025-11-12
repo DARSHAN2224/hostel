@@ -13,7 +13,7 @@
 
 import BaseRepository from './BaseRepository.js'
 import Student from '../models/Student.js'
-import { NotFoundError, ConflictError } from '../utils/customErrors.js'
+import { ConflictError } from '../utils/customErrors.js'
 import { USER_STATUS } from '../utils/constants.js'
 
 class StudentRepository extends BaseRepository {
@@ -74,15 +74,16 @@ class StudentRepository extends BaseRepository {
   /**
    * Find all students by course and year
    * @param {String} course - Course name
-   * @param {Number} year - Academic year
+   * @param {Number} year - Academic year (e.g., 2025)
+   * @param {Number} yearOfStudy - Year of study (1..6)
    * @returns {Promise<Array>} - Array of students
    */
-  async findByCourseAndYear(course, year) {
-    return await this.findAll({ 
-      course, 
-      year,
-      status: USER_STATUS.ACTIVE 
-    })
+  async findByCourseAndYear(course, year, yearOfStudy) {
+    const query = { course, status: USER_STATUS.ACTIVE }
+    if (typeof year !== 'undefined' && year !== null) query.year = year
+    if (typeof yearOfStudy !== 'undefined' && yearOfStudy !== null) query.yearOfStudy = yearOfStudy
+
+    return await this.findAll(query)
   }
 
   /**

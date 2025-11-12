@@ -10,6 +10,7 @@ export { default as Hod } from './Hod.js'
 export { default as Violation } from './Violation.js'
 export { default as AuditLog } from './AuditLog.js'
 export { default as Notification } from './Notification.js'
+export { default as Credential } from './Credential.js'
 
 // Import for default export
 import Student from './Student.js'
@@ -23,6 +24,7 @@ import Hod from './Hod.js'
 import Violation from './Violation.js'
 import AuditLog from './AuditLog.js'
 import Notification from './Notification.js'
+import Credential from './Credential.js'
 
 // Default export for convenience
 export default {
@@ -36,5 +38,6 @@ export default {
   Hod,
   Violation,
   AuditLog,
-  Notification
+  Notification,
+  Credential,
 }

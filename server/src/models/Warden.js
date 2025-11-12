@@ -52,6 +52,11 @@ const wardenSchema = new mongoose.Schema({
     enum: ['warden'],
     default: 'warden'
   },
+  // Force user to change password on first login (set by admin when created)
+  mustChangePassword: {
+    type: Boolean,
+    default: false
+  },
 
   
   // Hostel Information

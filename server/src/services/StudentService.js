@@ -157,6 +157,10 @@ class StudentService {
       query.year = filters.year
     }
 
+    if (filters.yearOfStudy) {
+      query.yearOfStudy = filters.yearOfStudy
+    }
+
     if (filters.status) {
       query.status = filters.status
     } else {
@@ -367,11 +371,11 @@ class StudentService {
       if (!parentRecord) {
         // Create new parent
         const parentData = {
-          firstName: fatherName || 'Guardian',
+          firstName: fatherName || motherName || 'Guardian',
           lastName: student.lastName,
           primaryPhone: guardianPhone,
           email: guardianEmail || undefined,
-          relationshipToStudent: fatherName ? 'father' : 'guardian',
+          relationshipToStudent: fatherName ? 'father' : (motherName ? 'mother' : 'guardian'),
           address: {
             city: student.permanentAddress?.city || 'To be updated',
             state: student.permanentAddress?.state || 'To be updated',
@@ -382,7 +386,7 @@ class StudentService {
             student: student._id,
             studentId: student.studentId,
             rollNumber: student.rollNumber,
-            relationship: fatherName ? 'father' : 'guardian',
+            relationship: fatherName ? 'father' : (motherName ? 'mother' : 'guardian'),
             isPrimaryContact: true,
             canApproveOutpass: true,
           }],
@@ -396,7 +400,7 @@ class StudentService {
         parentRecord = await Parent.create(parentData)
       } else {
         // Update existing parent
-        parentRecord.firstName = fatherName || parentRecord.firstName
+        parentRecord.firstName = fatherName || motherName || parentRecord.firstName
         if (guardianEmail) parentRecord.email = guardianEmail
         
         // Check if this student is already linked
@@ -409,7 +413,7 @@ class StudentService {
             student: student._id,
             studentId: student.studentId,
             rollNumber: student.rollNumber,
-            relationship: fatherName ? 'father' : 'guardian',
+            relationship: fatherName ? 'father' : (motherName ? 'mother' : 'guardian'),
             isPrimaryContact: parentRecord.students.length === 0,
             canApproveOutpass: true,
           })

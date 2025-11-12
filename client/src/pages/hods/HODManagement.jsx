@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
@@ -26,6 +27,9 @@ import Badge from '../../components/ui/Badge'
 import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import toast from 'react-hot-toast'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/authSlice'
+import hodService from '../../services/hodService'
 
 export default function HODManagement() {
   const [hods, setHods] = useState([])
@@ -42,7 +46,8 @@ export default function HODManagement() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editData, setEditData] = useState({})
   const [addData, setAddData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     phone: '',
     department: '',
@@ -90,7 +95,8 @@ export default function HODManagement() {
   const handleEdit = (hod) => {
     setSelectedHOD(hod)
     setEditData({
-      name: hod.name || '',
+      firstName: hod.firstName || '',
+      lastName: hod.lastName || '',
       email: hod.email || '',
       phone: hod.phone || '',
       department: hod.department || '',
@@ -101,7 +107,8 @@ export default function HODManagement() {
 
   const handleAdd = () => {
     setAddData({
-      name: '',
+      firstName: '',
+      lastName: '',
       email: '',
       phone: '',
       department: '',
@@ -132,12 +139,17 @@ export default function HODManagement() {
 
   const saveAdd = async () => {
     try {
-      // TODO: Implement API call
-      // await hodService.create(addData)
-      toast.success('HOD added successfully')
+      const resp = await hodService.create(addData)
+      const genPwd = resp?.data?.data?.generatedPassword || resp?.data?.generatedPassword
+      if (genPwd) {
+        toast.success(`HOD added — password: ${genPwd}`)
+      } else {
+        toast.success('HOD added successfully')
+      }
       setShowAddModal(false)
       setAddData({
-        name: '',
+      firstName: '',
+      lastName: '',
         email: '',
         phone: '',
         department: '',
@@ -154,6 +166,16 @@ export default function HODManagement() {
       toast.error(msg);
     }
   }
+
+  const currentUser = useSelector(selectUser)
+
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin') {
+      navigate('/')
+    }
+  }, [currentUser, navigate])
 
   const confirmDelete = async () => {
     try {
@@ -307,12 +329,15 @@ export default function HODManagement() {
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
                       Phone
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Department
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      Status
-                    </th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                          Department
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                          Password
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                          Status
+                        </th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
                       Actions
                     </th>
@@ -355,6 +380,20 @@ export default function HODManagement() {
                           {hod.department || 'N/A'}
                         </Badge>
                       </td>
+
+                      {/* Password column - admin only */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
+                        {currentUser?.role === 'admin' ? (
+                          (hod.generatedPassword || hod.generated_password || hod.plainPassword || hod.password) ? (
+                            <span className="font-mono text-sm text-teal-700 dark:text-teal-300">{hod.generatedPassword || hod.generated_password || hod.plainPassword || hod.password}</span>
+                          ) : (
+                            <span className="text-sm text-slate-500">—</span>
+                          )
+                        ) : (
+                          <span className="text-sm text-slate-500">Hidden</span>
+                        )}
+                      </td>
+
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge
                           variant={hod.status === 'active' ? 'success' : 'danger'}
@@ -549,6 +588,7 @@ export default function HODManagement() {
             onChange={(e) => setAddData((prev) => ({ ...prev, phone: e.target.value }))}
             placeholder="+91 9876543210"
           />
+          {/* Password is generated server-side for admin-created accounts. No manual password input here. */}
           <Select
             label="Department"
             value={addData.department || ''}

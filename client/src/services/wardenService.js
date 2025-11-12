@@ -45,15 +45,16 @@ export const wardenService = {
    */
   create: async (wardenData) => {
     try {
-      // Split name into first and last
-      const [firstName, ...rest] = (wardenData.name || '').split(' ');
-      const lastName = rest.join(' ') || 'Warden';
+      // Use explicit firstName / lastName from form
+      const firstName = wardenData.firstName || 'Warden'
+      const lastName = wardenData.lastName || ''
       const payload = {
         role: 'warden',
         email: wardenData.email,
-        password: wardenData.password || 'TempPass123!',
-        firstName,
-        lastName,
+        // If password is not provided, let the backend generate one (admin-created flows)
+        ...(wardenData.password ? { password: wardenData.password } : {}),
+  firstName,
+  lastName,
         phone: wardenData.phone,
         hostelType: wardenData.hostelType,
         assignedHostelBlocks: [
@@ -85,9 +86,9 @@ export const wardenService = {
       const payload = {}
       
       // Map frontend fields to backend fields
-      if (updates.name) {
-        payload.firstName = updates.name.split(' ')[0]
-        payload.lastName = updates.name.split(' ').slice(1).join(' ') || 'Warden'
+      if (updates.firstName || updates.lastName) {
+        payload.firstName = updates.firstName || (updates.name ? updates.name.split(' ')[0] : undefined)
+        payload.lastName = updates.lastName || (updates.name ? updates.name.split(' ').slice(1).join(' ') : undefined)
       }
       if (updates.email) payload.email = updates.email
       if (updates.phone) payload.phone = updates.phone

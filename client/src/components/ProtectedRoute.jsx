@@ -1,9 +1,11 @@
 import { useSelector } from 'react-redux'
 import { Navigate, useLocation } from 'react-router-dom'
 import { STORAGE_KEYS } from '../constants'
+import { selectUser } from '../store/authSlice'
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useSelector((state) => state.auth)
+  const user = useSelector(selectUser)
   const location = useLocation()
 
   // Check for tokens in localStorage
@@ -29,6 +31,11 @@ const ProtectedRoute = ({ children }) => {
   }
 
   // If authenticated or has valid tokens, render the protected component
+  // Enforce forced password change: if user's mustChangePassword flag is set, redirect to settings
+  if (user?.mustChangePassword) {
+    return <Navigate to="/settings" replace />
+  }
+
   return children
 }
 

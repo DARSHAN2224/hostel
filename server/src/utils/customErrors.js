@@ -24,9 +24,11 @@ class AppError extends Error {
 
 // 400 - Bad Request Errors
 class ValidationError extends AppError {
-  constructor(message = 'Validation failed') {
+  constructor(message = 'Validation failed', details = []) {
     super(message, 400)
     this.name = 'ValidationError'
+    // Structured details array: [{ field, message, value? }]
+    this.details = Array.isArray(details) ? details : []
   }
 }
 

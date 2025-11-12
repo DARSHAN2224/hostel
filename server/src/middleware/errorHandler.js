@@ -1,6 +1,7 @@
 /**
  * Custom Error Classes and Error Handling Middleware
  */
+/* global process */
 
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { logErrorRequest } from './requestLogger.js';
@@ -79,13 +80,24 @@ export const asyncHandler = (fn) => {
  * Handle Mongoose Validation Errors
  */
 const handleValidationError = (err) => {
-  const errors = Object.values(err.errors).map(error => ({
-    field: error.path,
-    message: error.message,
-    value: error.value
-  }))
-  
-  return new ValidationError('Validation failed', errors)
+  // If this is a Mongoose ValidationError it has an `errors` object
+  if (err && err.errors && typeof err.errors === 'object') {
+    const errors = Object.values(err.errors).map(error => ({
+      field: error.path,
+      message: error.message,
+      value: error.value
+    }))
+
+    return new ValidationError('Validation failed', errors)
+  }
+
+  // If the incoming error already has structured details (e.g. thrown programmatically), reuse them
+  if (err && Array.isArray(err.details) && err.details.length > 0) {
+    return new ValidationError(err.message || 'Validation failed', err.details)
+  }
+
+  // Generic fallback
+  return new ValidationError(err.message || 'Validation failed')
 }
 
 /**
@@ -165,6 +177,8 @@ const sendErrorProd = (err, res) => {
  * This should be the last middleware in your app
  */
 export const errorHandler = (err, req, res, next) => {
+  // reference `next` so linters/static analyzers don't complain about unused args
+  void next
   let error = { ...err };
   error.message = err.message;
   error.statusCode = err.statusCode || 500;
@@ -199,7 +213,7 @@ export const errorHandler = (err, req, res, next) => {
   logErrorRequest(error, req, res);
 
   // Send error response
-  if (process.env.NODE_ENV === 'development') {
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
     sendErrorDev(error, req, res);
   } else {
     sendErrorProd(error, res);

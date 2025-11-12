@@ -71,6 +71,7 @@ const RoleLogin = () => {
   
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [unverifiedEmail, setUnverifiedEmail] = useState(null)
 
   // Extract role from URL path
   const role = location.pathname.split('/')[1] || 'student'
@@ -122,29 +123,26 @@ const RoleLogin = () => {
 
     try {
       // Add role to login request
-      const response = await login({
-        ...data,
-        role: role
-      })
-      
-      // Store tokens in localStorage using STORAGE_KEYS
-      if (response.data.accessToken) {
-        localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, response.data.accessToken)
-      }
-      if (response.data.refreshToken) {
-        localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, response.data.refreshToken)
-      }
-      
-      dispatch(setCredentials({
-        user: response.data.user,
-        token: response.data.accessToken
-      }))
+      const response = await login({ ...data, role: role })
+      const resp = response?.data || response || {}
 
-      toast.success(`Welcome back, ${response.data.user.name || response.data.user.email}!`, {
+      // Store tokens in localStorage using STORAGE_KEYS
+      if (resp.accessToken) localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, resp.accessToken)
+      if (resp.refreshToken) localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, resp.refreshToken)
+
+      dispatch(setCredentials({ user: resp.user, token: resp.accessToken }))
+
+      toast.success(`Welcome back, ${resp.user?.name || resp.user?.email || 'User'}!`, {
         id: loadingToast,
         duration: 3000,
         icon: '👋'
       })
+
+      // If user must change password, redirect them to settings to enforce password change
+      if (resp.mustChangePassword) {
+        toast('Please change your password before using the application.', { id: loadingToast, duration: 5000 })
+        return navigate('/settings')
+      }
 
       // Navigate to role-specific dashboard
       setTimeout(() => {
@@ -169,9 +167,12 @@ const RoleLogin = () => {
         }
       }, 500)
     } catch (error) {
-      toast.error(error.message || error.response?.data?.message || 'Invalid credentials', {
-        id: loadingToast
-      })
+      const message = error.response?.data?.message || error.message || 'Invalid credentials'
+      toast.error(message, { id: loadingToast })
+      // If server indicates email is unverified, surface quick actions
+      if (error.response?.status === 403 && message.toLowerCase().includes('verify')) {
+        setUnverifiedEmail(data.email)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -361,12 +362,7 @@ const RoleLogin = () => {
                     Remember me
                   </span>
                 </label>
-                <button
-                  type="button"
-                  className={`font-medium bg-gradient-to-r ${config.gradient} bg-clip-text text-transparent hover:opacity-80 transition-opacity`}
-                >
-                  Forgot password?
-                </button>
+                <Link to="/forgot-password" className={`font-medium bg-gradient-to-r ${config.gradient} bg-clip-text text-transparent hover:opacity-80 transition-opacity`}>Forgot password?</Link>
               </Motion.div>
 
               {/* Submit Button */}
@@ -409,6 +405,28 @@ const RoleLogin = () => {
               </div>
             </div>
 
+            {/* Unverified email quick actions */}
+            {unverifiedEmail && (
+              <div className="p-4 mb-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-sm">
+                <p className="mb-2">Your email <strong>{unverifiedEmail}</strong> is not verified.</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await (await import('../../services/authService')).default.resendVerification(unverifiedEmail)
+                        const code = res?.data?.data?.verificationCode
+                        if (code) toast.success(`Verification code (dev): ${code}`)
+                        toast.success('Verification email resent (if account exists)')
+                      } catch (err) {
+                        toast.error(err?.response?.data?.message || 'Failed to resend verification')
+                      }
+                    }}
+                    className="px-3 py-2 bg-white/90 rounded-lg border text-sm"
+                  >Resend verification</button>
+                  <a href="/verify-email" className="px-3 py-2 bg-amber-600 text-white rounded-lg text-sm">Enter verification code</a>
+                </div>
+              </div>
+            )}
             {/* Footer */}
             <Motion.div
               initial={{ opacity: 0 }}

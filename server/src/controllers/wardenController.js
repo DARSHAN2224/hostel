@@ -30,11 +30,25 @@ export const getAllWardens = asyncHandler(async (req, res) => {
 
   const total = await Warden.countDocuments(query)
 
+  let enhancedWardens = wardens
+  if (req.user?.role === 'admin' && Array.isArray(wardens) && wardens.length > 0) {
+    try {
+      const ids = wardens.map(w => w._id)
+      const { default: Credential } = await import('../models/Credential.js')
+      const creds = await Credential.find({ userId: { $in: ids } })
+      const credMap = {}
+      creds.forEach(c => { credMap[String(c.userId)] = c.password })
+      enhancedWardens = wardens.map(w => ({ ...w.toObject ? w.toObject() : w, generatedPassword: credMap[w._id] || undefined }))
+    } catch (e) {
+      console.warn('Failed to attach credentials to wardens:', e)
+    }
+  }
+
   res.json(
     new ApiResponse(
       200,
       {
-        wardens,
+        wardens: enhancedWardens,
         pagination: {
           total,
           limit: Number.parseInt(limit),

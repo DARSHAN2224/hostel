@@ -5,6 +5,9 @@
 
 import axios from 'axios'
 import { API_BASE_URL, STORAGE_KEYS, ROUTES } from '../constants'
+import { store } from '../store/store'
+import { setValidationErrors } from '../store/uiSlice'
+import { normalizeServerErrors } from '../utils/errorUtils'
 
 // Create axios instance
 const apiClient = axios.create({
@@ -103,10 +106,26 @@ apiClient.interceptors.response.use(
     }
 
     // Format error response
-    const errorMessage = error.response?.data?.message || error.message || 'An error occurred'
+    // Normalize validation errors from different server shapes
+    const payload = error.response?.data || {}
+    const normalized = normalizeServerErrors(payload)
+
+    // Dispatch normalized validation errors to the ui store so forms/components
+    // can subscribe and render server-side validation messages automatically.
+    if (normalized && Array.isArray(normalized) && normalized.length > 0) {
+      try {
+        store.dispatch(setValidationErrors(normalized))
+      } catch (e) {
+        // swallow dispatch errors to avoid masking the original API error
+        console.warn('Failed to dispatch validation errors to store', e)
+      }
+    }
+
+    const errorMessage = payload.message || error.message || 'An error occurred'
     const err = new Error(errorMessage)
     err.status = error.response?.status
-    err.data = error.response?.data
+    err.data = payload
+    if (normalized) err.normalizedErrors = normalized
 
     throw err
   }

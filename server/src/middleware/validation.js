@@ -211,17 +211,18 @@ export const registerSchema = Joi.object({
   
   year: Joi.number()
     .integer()
-    .min(1)
-    .max(4)
+    // Academic year (e.g. 2025). Allow a reasonable range.
+    .min(2000)
+    .max(2100)
     .when('role', {
       is: 'student',
       then: Joi.required(),
       otherwise: Joi.forbidden(),
     })
     .messages({
-      'number.min': 'Year must be between 1 and 4',
-      'number.max': 'Year must be between 1 and 4',
-      'any.required': 'Year is required for students',
+      'number.min': 'Year must be a valid academic year (e.g. 2025)',
+      'number.max': 'Year must be a valid academic year (e.g. 2025)',
+      'any.required': 'Academic year is required for students',
     }),
   
   parentContact: Joi.string()
@@ -382,7 +383,10 @@ export const searchStudentsSchema = Joi.object({
   query: Joi.string().min(1).trim().optional(),
   hostelBlock: Joi.string().valid('A', 'B', 'C', 'D', 'E').optional(),
   department: Joi.string().valid('CSE', 'ECE', 'ME', 'CE', 'EE', 'IT').optional(),
-  year: Joi.number().integer().min(1).max(4).optional(),
+  // Academic year (e.g. 2025)
+  year: Joi.number().integer().min(2000).max(2100).optional(),
+  // Year of study (1..6)
+  yearOfStudy: Joi.number().integer().min(1).max(6).optional(),
   status: Joi.string().valid('active', 'suspended', 'inactive').optional(),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
@@ -422,7 +426,8 @@ export const dateRangeSchema = Joi.object({
 export const managedCreateSchema = Joi.object({
   role: Joi.string().valid('student', 'parent', 'warden', 'security', 'admin').required(),
   email: emailSchema,
-  password: passwordSchema,
+  // Password is optional for managed creation so server (admin) can generate one when needed
+  password: passwordSchema.optional(),
 
   // Common fields
   firstName: Joi.string().min(2).max(50).when('role', {
@@ -470,7 +475,10 @@ export const managedCreateSchema = Joi.object({
   student: Joi.object({
     rollNumber: Joi.string().required(),
     course: Joi.string().required(),
-    year: Joi.number().integer().min(1).max(6).required(),
+    // Academic year (e.g. 2025)
+    year: Joi.number().integer().min(2000).max(2100).required(),
+    // Year of study (1..6)
+    yearOfStudy: Joi.number().integer().min(1).max(6).optional(),
     semester: Joi.number().integer().min(1).max(12).required(),
     department: Joi.string().required(),
     hostelType: Joi.string().valid('boys', 'girls').required(),

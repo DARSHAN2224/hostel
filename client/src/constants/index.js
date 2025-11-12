@@ -64,6 +64,26 @@ export const HOSTEL_TYPES = {
   GIRLS: 'girls'
 }
 
+// Departments
+export const DEPARTMENTS = [
+  'Computer Science',
+  'Electronics',
+  'Mechanical',
+  'Civil',
+  'Electrical'
+]
+
+// Courses
+export const COURSES = [
+  'B.Tech',
+  'M.Tech',
+  'MBA',
+  'BSc'
+]
+
+// Hostel Blocks
+export const HOSTEL_BLOCKS = ['A', 'B', 'C', 'D']
+
 // Priority Levels
 export const PRIORITY = {
   LOW: 'low',
@@ -154,6 +174,7 @@ export const API_ENDPOINTS = {
   REFRESH: '/auth/refresh',
   REGISTER_ADMIN: '/auth/register-initial-admin',
   VERIFY_EMAIL: '/auth/verify-email',
+  RESEND_VERIFICATION: '/auth/resend-verification',
   FORGOT_PASSWORD: '/auth/forgot-password',
   RESET_PASSWORD: '/auth/reset-password',
   

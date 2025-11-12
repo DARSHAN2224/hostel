@@ -44,7 +44,12 @@ const Login = () => {
 
   const onSubmit = async (data) => {
     try {
-      await dispatch(loginUser(data)).unwrap()
+      const result = await dispatch(loginUser(data)).unwrap()
+      // If server asks for password change, redirect to settings so user can update their password
+      if (result?.mustChangePassword) {
+        toast('Please change your password before using the application', { icon: '🔒' })
+        return navigate('/settings')
+      }
       toast.success('Login successful!')
       navigate(ROUTES.DASHBOARD)
     } catch {

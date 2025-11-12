@@ -22,6 +22,14 @@ export const hodService = {
   },
 
   /**
+   * Create a new HOD (admin)
+   * @param {Object} hodData
+   */
+  create: async (hodData) => {
+    return await apiClient.post('/hods/create', hodData)
+  },
+
+  /**
    * Get HOD profile
    * @returns {Promise}
    */

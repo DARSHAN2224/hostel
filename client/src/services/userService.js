@@ -10,6 +10,9 @@ export const userService = {
   create: async (data) => {
     return await apiClient.post('/users', data)
   },
+  getCredential: async (role, id) => {
+    return await apiClient.get(`/users/${role}/${id}/credential`)
+  },
   update: async (role, id, data) => {
     return await apiClient.patch(`/users/${role}/${id}`, data)
   },
@@ -18,6 +21,6 @@ export const userService = {
   }
 }
 
-export const { getAll: getUsers, getStats: getUserStats, create: createUser, update: updateUser, remove: deleteUser } = userService
+export const { getAll: getUsers, getStats: getUserStats, create: createUser, getCredential, update: updateUser, remove: deleteUser } = userService
 
 export default userService

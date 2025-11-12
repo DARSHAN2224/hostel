@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
@@ -27,6 +28,8 @@ import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import wardenService from '../../services/wardenService'
 import toast from 'react-hot-toast'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/authSlice'
 
 export default function WardenManagement() {
   const [wardens, setWardens] = useState([])
@@ -44,7 +47,8 @@ export default function WardenManagement() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editData, setEditData] = useState({})
   const [addData, setAddData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     phone: '',
     hostelBlock: '',
@@ -89,6 +93,11 @@ export default function WardenManagement() {
 
         return {
           _id: warden._id,
+          role: warden.role || warden.userRole || warden.type || 'warden',
+          // keep explicit firstName/lastName for UI to consume directly
+          firstName: warden.firstName || (warden.name ? String(warden.name).split(' ')[0] : '') || '',
+          lastName: warden.lastName || (warden.name ? String(warden.name).split(' ').slice(1).join(' ') : '') || '',
+          // legacy-friendly combined name
           name: `${warden.firstName || ''} ${warden.lastName || ''}`.trim() || warden.name || 'N/A',
           email: warden.email,
           phone: warden.phone || 'N/A',
@@ -118,10 +127,14 @@ export default function WardenManagement() {
     setSearchTerm(e.target.value)
   }
 
-  const filteredWardens = Array.isArray(wardens) ? wardens.filter(warden =>
-    warden.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    warden.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) : []
+  const filteredWardens = Array.isArray(wardens) ? wardens.filter(warden => {
+    const fullName = `${warden.firstName || ''} ${warden.lastName || ''}`.trim()
+    return (
+      fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      warden.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (warden.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  }) : []
 
   const handleView = (warden) => {
     setSelectedWarden(warden)
@@ -136,7 +149,8 @@ export default function WardenManagement() {
   const handleEdit = (warden) => {
     setSelectedWarden(warden)
     setEditData({
-      name: warden.name || '',
+      firstName: warden.firstName || '',
+      lastName: warden.lastName || '',
       email: warden.email || '',
       phone: warden.phone || '',
       hostelBlock: warden.hostelBlock || '',
@@ -148,7 +162,8 @@ export default function WardenManagement() {
 
   const handleAdd = () => {
     setAddData({
-      name: '',
+      firstName: '',
+      lastName: '',
       email: '',
       phone: '',
       hostelBlock: '',
@@ -174,11 +189,17 @@ export default function WardenManagement() {
 
   const saveAdd = async () => {
     try {
-      await wardenService.create(addData)
-      toast.success('Warden added successfully')
+      const resp = await wardenService.create(addData)
+      const genPwd = resp?.data?.data?.generatedPassword || resp?.data?.generatedPassword
+      if (genPwd) {
+        toast.success(`Warden added — password: ${genPwd}`)
+      } else {
+        toast.success('Warden added successfully')
+      }
       setShowAddModal(false)
       setAddData({
-        name: '',
+        firstName: '',
+        lastName: '',
         email: '',
         phone: '',
         hostelBlock: '',
@@ -197,6 +218,17 @@ export default function WardenManagement() {
       toast.error(msg);
     }
   }
+
+  const currentUser = useSelector(selectUser)
+
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    // Only admins may access the management pages
+    if (currentUser && currentUser.role !== 'admin') {
+      navigate('/')
+    }
+  }, [currentUser, navigate])
 
   const confirmDelete = async () => {
     try {
@@ -244,9 +276,12 @@ export default function WardenManagement() {
               <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
                 Block
               </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Password
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
                 Status
-              </th>
+                </th>
               <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
                 Actions
               </th>
@@ -273,7 +308,7 @@ export default function WardenManagement() {
                     </Motion.div>
                     <div className="ml-4">
                       <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                        {warden.name || 'N/A'}
+                        {`${warden.firstName || ''} ${warden.lastName || ''}`.trim() || warden.name || 'N/A'}
                       </div>
                       <div className="text-sm text-slate-500 dark:text-slate-400">
                         {warden.email}
@@ -294,6 +329,19 @@ export default function WardenManagement() {
                     Block {warden.hostelBlock || 'N/A'}
                   </Badge>
                 </td>
+                {/* Password column - visible to admins only. Also show security role passwords here since security entries are included in warden list */}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
+                  {currentUser?.role === 'admin' ? (
+                    (warden.generatedPassword || warden.generated_password || warden.plainPassword || warden.password) ? (
+                      <span className="font-mono text-sm text-amber-700 dark:text-amber-300">{warden.generatedPassword || warden.generated_password || warden.plainPassword || warden.password}</span>
+                    ) : (
+                      <span className="text-sm text-slate-500">—</span>
+                    )
+                  ) : (
+                    <span className="text-sm text-slate-500">Hidden</span>
+                  )}
+                </td>
+
                 <td className="px-6 py-4 whitespace-nowrap">
                   <Badge
                     variant={warden.status === 'active' ? 'success' : 'danger'}
@@ -493,7 +541,7 @@ export default function WardenManagement() {
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {selectedWarden.name}
+                  {`${selectedWarden.firstName || ''} ${selectedWarden.lastName || ''}`.trim() || selectedWarden.name}
                 </h3>
                 <p className="text-slate-500 dark:text-slate-400">
                   {selectedWarden.email}
@@ -552,11 +600,18 @@ export default function WardenManagement() {
         size="md"
       >
         <div className="space-y-4">
-          <Input
-            label="Name"
-            value={editData.name || ''}
-            onChange={(e) => setEditData((prev) => ({ ...prev, name: e.target.value }))}
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="First Name"
+              value={editData.firstName || ''}
+              onChange={(e) => setEditData((prev) => ({ ...prev, firstName: e.target.value }))}
+            />
+            <Input
+              label="Last Name"
+              value={editData.lastName || ''}
+              onChange={(e) => setEditData((prev) => ({ ...prev, lastName: e.target.value }))}
+            />
+          </div>
           <Input
             label="Email"
             type="email"
@@ -617,12 +672,20 @@ export default function WardenManagement() {
         size="md"
       >
         <div className="space-y-4">
-          <Input
-            label="Name"
-            value={addData.name || ''}
-            onChange={(e) => setAddData((prev) => ({ ...prev, name: e.target.value }))}
-            placeholder="Enter warden name"
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="First Name"
+              value={addData.firstName || ''}
+              onChange={(e) => setAddData((prev) => ({ ...prev, firstName: e.target.value }))}
+              placeholder="First name"
+            />
+            <Input
+              label="Last Name"
+              value={addData.lastName || ''}
+              onChange={(e) => setAddData((prev) => ({ ...prev, lastName: e.target.value }))}
+              placeholder="Last name"
+            />
+          </div>
           <Input
             label="Email"
             type="email"
@@ -636,6 +699,10 @@ export default function WardenManagement() {
             onChange={(e) => setAddData((prev) => ({ ...prev, phone: e.target.value }))}
             placeholder="+91 9876543210"
           />
+          {/* Password is generated server-side for admin-created accounts. No manual password input here. */}
+          {/* Password input visible only to admins */}
+          {/* Determine current user role */}
+          
           <div className="grid grid-cols-2 gap-4">
             <Select
               label="Hostel Type"
@@ -687,7 +754,7 @@ export default function WardenManagement() {
             </div>
           </div>
           <p className="text-slate-600 dark:text-slate-400">
-            Are you sure you want to delete <strong>{selectedWarden?.name}</strong>? All their data
+            Are you sure you want to delete <strong>{`${selectedWarden?.firstName || ''} ${selectedWarden?.lastName || ''}`.trim() || selectedWarden?.name}</strong>? All their data
             will be permanently removed.
           </p>
           <ModalFooter>

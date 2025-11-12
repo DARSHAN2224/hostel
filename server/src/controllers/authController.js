@@ -1,8 +1,8 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
-import { Student, Warden, Admin, Security, Parent } from '../models/index.js'
+import { Student, Warden, Admin, Security } from '../models/index.js'
 import { AppError } from '../middleware/errorHandler.js'
-import { HOSTEL_BLOCKS, HOSTEL_TYPES, USER_STATUS } from '../utils/constants.js'
+import { HOSTEL_BLOCKS, HOSTEL_TYPES } from '../utils/constants.js'
 import generateVerificationCode from '../utils/generateVerificationCode.js'
 import { 
   sendVerificationEmail, 
@@ -122,7 +122,8 @@ export const login = asyncHandler(async (req, res, next) => {
   }
 
   // Require email verified
-  if (!user.isEmailVerified) {
+  // Require email verification for non-admin users
+  if (user.role !== 'admin' && !user.isEmailVerified) {
     return next(new AppError('Please verify your email to continue.', 403))
   }
 
@@ -145,6 +146,7 @@ export const login = asyncHandler(async (req, res, next) => {
   res.json(
     new ApiResponse(200, { 
       user: user.toJSON(),
+      mustChangePassword: user.mustChangePassword || false,
       accessToken,
       refreshToken
     }, 'Login successful')
@@ -259,6 +261,8 @@ export const changePassword = asyncHandler(async (req, res, next) => {
 
   // Update password
   user.password = newPassword
+  // Clear any forced-change flag when user updates their password
+  if (user.mustChangePassword) user.mustChangePassword = false
   await user.save()
 
   // Send password changed confirmation email (non-critical, won't throw)
@@ -308,7 +312,7 @@ export const verifyEmail = asyncHandler(async (req, res, next) => {
   await user.updateLastLogin()
 
   res.json(
-    new ApiResponse(200, { user: user.toJSON() }, 'Email verified successfully')
+    new ApiResponse(200, { user: user.toJSON(), mustChangePassword: user.mustChangePassword || false }, 'Email verified successfully')
   )
 })
 
@@ -390,6 +394,8 @@ export const resetPassword = asyncHandler(async (req, res, next) => {
   user.password = newPassword
   user.passwordResetToken = undefined
   user.passwordResetExpires = undefined
+  // Clear mustChangePassword for password reset flows
+  if (user.mustChangePassword) user.mustChangePassword = false
   await user.save()
 
   // Send confirmation email (non-critical)

@@ -67,6 +67,11 @@ const securitySchema = new mongoose.Schema({
     enum: ['security'],
     default: 'security'
   },
+  // Force user to change password on first login (set by admin when created)
+  mustChangePassword: {
+    type: Boolean,
+    default: false
+  },
 
   
   // Work Assignment

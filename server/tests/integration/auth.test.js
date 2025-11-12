@@ -1,8 +1,13 @@
+/* eslint-env jest */
+/* global describe, beforeAll, beforeEach, it, expect */
 import request from 'supertest';
-import app from '../../src/app.js';
-import { Student } from '../../src/models/index.js';
+import { createApp } from '../../src/app.js';
+let app;
 
 describe('Authentication API', () => {
+  beforeAll(() => {
+    app = createApp()
+  })
   describe('POST /api/auth/register', () => {
     const validStudent = {
       name: 'John Doe',
@@ -67,7 +72,8 @@ describe('Authentication API', () => {
     });
 
     it('should fail without required student fields', async () => {
-      const { hostelBlock, ...incompleteStudent } = validStudent;
+  const incompleteStudent = { ...validStudent }
+  delete incompleteStudent.hostelBlock
       
       const response = await request(app)
         .post('/api/auth/register')

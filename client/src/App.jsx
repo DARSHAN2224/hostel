@@ -2,10 +2,14 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Provider, useSelector } from 'react-redux'
 import { Toaster } from 'react-hot-toast'
 import { store } from './store/store'
+import ServerValidationToaster from './components/ServerValidationToaster'
 
 // Pages
 import LandingPage from './pages/LandingPage'
 import RoleLogin from './pages/auth/RoleLogin'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
+import VerifyEmail from './pages/auth/VerifyEmail'
 import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import StudentManagement from './pages/students/StudentManagement'
@@ -99,6 +103,32 @@ function App() {
             
             {/* Generic login route - redirects to student login */}
             <Route path={ROUTES.LOGIN} element={<Navigate to={ROUTES.STUDENT_LOGIN} replace />} />
+
+            {/* Auth helpers: forgot/reset/verify */}
+            <Route
+              path="/forgot-password"
+              element={
+                <PublicRoute>
+                  <ForgotPassword />
+                </PublicRoute>
+              }
+            />
+            <Route
+              path="/reset-password"
+              element={
+                <PublicRoute>
+                  <ResetPassword />
+                </PublicRoute>
+              }
+            />
+            <Route
+              path="/verify-email"
+              element={
+                <PublicRoute>
+                  <VerifyEmail />
+                </PublicRoute>
+              }
+            />
             
             {/* No signup routes - accounts are created by admins/wardens */}
             
@@ -239,6 +269,7 @@ function App() {
           </Routes>
 
           {/* Toast Notifications */}
+          <ServerValidationToaster />
           <Toaster 
             position="top-right"
             toastOptions={{

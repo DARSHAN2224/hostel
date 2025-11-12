@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
@@ -26,8 +27,11 @@ import Badge from '../../components/ui/Badge'
 import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import studentService from '../../services/studentService'
+import { DEPARTMENTS, HOSTEL_BLOCKS, VALIDATION, COURSES } from '../../constants'
 
 import toast from 'react-hot-toast'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/authSlice'
 
 export default function StudentManagement() {
   const [students, setStudents] = useState([])
@@ -48,14 +52,34 @@ export default function StudentManagement() {
     firstName: '',
     lastName: '',
     email: '',
-    password: '',
     student: {
       rollNumber: '',
       year: '',
+      yearOfStudy: '',
+      course: '',
+      semester: '',
       department: '',
-      hostelBlock: ''
+      hostelType: '',
+      hostelBlock: '',
+      roomNumber: '',
+      parentDetails: {
+        fatherName: '',
+        motherName: '',
+        guardianPhone: '',
+        guardianEmail: ''
+      }
     }
   })
+
+  const currentUser = useSelector(selectUser)
+
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin') {
+      navigate('/')
+    }
+  }, [currentUser, navigate])
 
   const fetchStudents = useCallback(async () => {
     try {
@@ -217,6 +241,9 @@ export default function StudentManagement() {
                 Hostel
               </th>
               <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
+                Password
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
                 Actions
               </th>
             </tr>
@@ -260,13 +287,26 @@ export default function StudentManagement() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <Badge variant="primary">
-                    Year {student.year}
+                    Academic Year {student.year}
                   </Badge>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <Badge variant="success">
                     {student.hostel}
                   </Badge>
+                </td>
+
+                {/* Password column - admin only */}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
+                  {currentUser?.role === 'admin' ? (
+                    (student.generatedPassword || student.generated_password || student.plainPassword || student.password) ? (
+                      <span className="font-mono text-sm text-blue-700 dark:text-blue-300">{student.generatedPassword || student.generated_password || student.plainPassword || student.password}</span>
+                    ) : (
+                      <span className="text-sm text-slate-500">—</span>
+                    )
+                  ) : (
+                    <span className="text-sm text-slate-500">Hidden</span>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <div className="flex items-center gap-2">
@@ -364,14 +404,15 @@ export default function StudentManagement() {
               className="bg-white dark:bg-slate-900"
             />
 
-            {/* Year Filter */}
+            {/* Academic Year Filter */}
             <Select
-              placeholder="All Years"
+              placeholder="All Academic Years"
               options={[
-                { label: '1st Year', value: '1' },
-                { label: '2nd Year', value: '2' },
-                { label: '3rd Year', value: '3' },
-                { label: '4th Year', value: '4' }
+                { label: '2022', value: '2022' },
+                { label: '2023', value: '2023' },
+                { label: '2024', value: '2024' },
+                { label: '2025', value: '2025' },
+                { label: '2026', value: '2026' }
               ]}
               value={filters.year}
               onChange={(e) => setFilters({ ...filters, year: e.target.value })}
@@ -487,15 +528,28 @@ export default function StudentManagement() {
                 </p>
               </div>
               <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Year</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Academic Year</p>
                 <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  Year {selectedStudent.year || 'N/A'}
+                  {selectedStudent.year || 'N/A'}
                 </p>
               </div>
               <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                 <p className="text-sm text-slate-500 dark:text-slate-400">Phone</p>
                 <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
                   {selectedStudent.phone || 'N/A'}
+                </p>
+              </div>
+              {/* Parent Info */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                <p className="text-sm text-slate-500 dark:text-slate-400">Parent / Guardian</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                  {selectedStudent.parentDetails?.fatherName || selectedStudent.parentDetails?.motherName || 'N/A'}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {selectedStudent.parentDetails?.guardianPhone ? `Phone: ${selectedStudent.parentDetails.guardianPhone}` : ''}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {selectedStudent.parentDetails?.guardianEmail ? `Email: ${selectedStudent.parentDetails.guardianEmail}` : ''}
                 </p>
               </div>
             </div>
@@ -531,37 +585,119 @@ export default function StudentManagement() {
             <Input label="Last Name" value={addData.lastName} onChange={(e)=>setAddData(prev=>({...prev, lastName: e.target.value}))} />
           </div>
           <Input label="Email" type="email" value={addData.email} onChange={(e)=>setAddData(prev=>({...prev, email: e.target.value}))} />
-          <Input label="Password" type="password" value={addData.password} onChange={(e)=>setAddData(prev=>({...prev, password: e.target.value}))} />
+          {/* Password is generated by the system and emailed to the student. Admins do not set passwords here. */}
+          <p className="text-sm text-slate-500 dark:text-slate-400">A secure password will be generated and emailed to the student. They will be required to change it on first login.</p>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Register Number" value={addData.student.rollNumber} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, rollNumber: e.target.value}}))} />
-            <Input label="Year" value={addData.student.year} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, year: e.target.value}}))} />
+            <Input label="Academic Year" type="number" placeholder="e.g. 2025" value={addData.student.year} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, year: e.target.value}}))} />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Department" value={addData.student.department} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, department: e.target.value}}))} />
-            <Input label="Hostel Block" value={addData.student.hostelBlock} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, hostelBlock: e.target.value}}))} />
+            <Select label="Course" value={addData.student.course} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, course: e.target.value}}))}>
+              <option value="">Select Course</option>
+              {/** Courses come from constants */}
+              {COURSES.map(c => <option key={c} value={c}>{c}</option>)}
+            </Select>
+            <Select label="Semester" value={addData.student.semester} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, semester: e.target.value}}))}>
+              <option value="">Select Semester</option>
+              {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
+            </Select>
+          </div>
+          {/* Year of Study select (1..6) */}
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Year of Study" value={addData.student.yearOfStudy} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, yearOfStudy: e.target.value}}))}>
+              <option value="">Select Year of Study</option>
+              {[1,2,3,4,5,6].map(y => <option key={y} value={y}>{y}{y===1? 'st': y===2? 'nd': y===3? 'rd':'th'} Year</option>)}
+            </Select>
+            <div />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Department" value={addData.student.department} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, department: e.target.value}}))}>
+              <option value="">Select Department</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </Select>
+            <Select label="Hostel Type" value={addData.student.hostelType} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, hostelType: e.target.value}}))}>
+              <option value="">Select Hostel Type</option>
+              <option value="boys">Boys Hostel</option>
+              <option value="girls">Girls Hostel</option>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Hostel Block" value={addData.student.hostelBlock} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, hostelBlock: e.target.value}}))}>
+              <option value="">Select Block</option>
+              {HOSTEL_BLOCKS.map(b => <option key={b} value={b}>Block {b}</option>)}
+            </Select>
+            <Input label="Room Number" value={addData.student.roomNumber} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, roomNumber: e.target.value}}))} />
+          </div>
+          {/* Parent / Guardian Details */}
+          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian Details</div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Father's Name" value={addData.student.parentDetails.fatherName} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, fatherName: e.target.value}}}))} />
+            <Input label="Mother's Name" value={addData.student.parentDetails.motherName} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, motherName: e.target.value}}}))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Guardian Phone" value={addData.student.parentDetails.guardianPhone} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, guardianPhone: e.target.value}}}))} />
+            <Input label="Guardian Email" value={addData.student.parentDetails.guardianEmail} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, guardianEmail: e.target.value}}}))} />
           </div>
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" onClick={()=>setShowAddModal(false)}>Cancel</Button>
             <Button variant="primary" onClick={async ()=>{
               try{
                 // Compose payload expected by managed create endpoint
+                // basic client-side validation for parent contact fields
+                const guardianPhone = addData.student.parentDetails.guardianPhone?.trim()
+                const guardianEmail = addData.student.parentDetails.guardianEmail?.trim()
+                if (guardianPhone && !VALIDATION.PHONE_PATTERN.test(guardianPhone)) {
+                  toast.error('Guardian phone must be 10-15 digits')
+                  return
+                }
+                if (guardianEmail && !VALIDATION.EMAIL_PATTERN.test(guardianEmail)) {
+                  toast.error('Guardian email is invalid')
+                  return
+                }
+
                 const payload = {
                   firstName: addData.firstName,
                   lastName: addData.lastName,
                   email: addData.email,
-                  password: addData.password,
                   role: 'student',
                   student: {
                     rollNumber: addData.student.rollNumber,
-                    year: addData.student.year,
+                    year: Number(addData.student.year),
+                    yearOfStudy: Number(addData.student.yearOfStudy),
+                    course: addData.student.course,
+                    semester: addData.student.semester,
                     department: addData.student.department,
-                    hostelBlock: addData.student.hostelBlock
+                    hostelType: addData.student.hostelType,
+                    hostelBlock: addData.student.hostelBlock,
+                    roomNumber: addData.student.roomNumber,
+                    parentDetails: addData.student.parentDetails
                   }
                 }
-                await studentService.create(payload)
+                const res = await studentService.create(payload)
                 toast.success('Student created successfully')
+
+                // Inform admin that credentials were generated and emailed
+                try {
+                  const respData = res?.data || res
+                  if (respData?.message) {
+                    // If backend provided a friendly message about email sending, show it
+                    toast.success(respData.message)
+                  } else {
+                    toast('A secure password has been generated and emailed to the student.', { icon: '✉️' })
+                  }
+
+                  // Expose verification code in development if backend included it
+                  const verificationCode = respData?.data?.verificationCode || respData?.verificationCode
+                  if (verificationCode) {
+                    toast(`Verification code (dev): ${verificationCode}`, { icon: '🔑' })
+                  }
+                } catch (e) {
+                  // Non-critical: ignore any toast extraction errors
+                  console.debug('Could not extract email info from response', e)
+                }
+
                 setShowAddModal(false)
-                setAddData({ firstName: '', lastName: '', email: '', password: '', student: { rollNumber: '', year: '', department: '', hostelBlock: '' } })
+                setAddData({ firstName: '', lastName: '', email: '', student: { rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '', department: '', hostelType: '', hostelBlock: '', roomNumber: '', parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' } } })
                 fetchStudents()
               }catch(err){
                 console.error('Failed to create student:', err)
