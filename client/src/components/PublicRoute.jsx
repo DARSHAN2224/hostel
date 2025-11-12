@@ -11,6 +11,15 @@ const PublicRoute = ({ children }) => {
   // Check for tokens in localStorage
   const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)
   const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
+  // If there is a pending verification, only allow access to the verify page
+  try {
+    const pending = localStorage.getItem(STORAGE_KEYS.PENDING_VERIFICATION_EMAIL)
+    if (pending && location.pathname !== '/verify-email') {
+      return <Navigate to="/verify-email" replace />
+    }
+  } catch {
+    // ignore storage errors
+  }
   const hasValidTokens = accessToken && refreshToken
 
   // If user has valid tokens, redirect to dashboard

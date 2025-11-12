@@ -84,14 +84,12 @@ const outpassLogSchema = new mongoose.Schema({
     ref: 'Security'
   },
   exitSecurityName: String,
-  exitSecurityEmployeeId: String,
   
   returnRecordedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Security'
   },
   returnSecurityName: String,
-  returnSecurityEmployeeId: String,
   
   // Gate Information
   exitGate: {
@@ -409,7 +407,7 @@ outpassLogSchema.methods.recordExit = async function(securityInfo, gateInfo = {}
   this.actualExitTime = new Date()
   this.exitRecordedBy = securityInfo.securityId
   this.exitSecurityName = securityInfo.securityName
-  this.exitSecurityEmployeeId = securityInfo.employeeId
+  this.exitSecurityEmployeeId = undefined // Removed employeeId
   this.exitGate = gateInfo.gateName || this.exitGate
   this.exitNotes = gateInfo.notes || ''
   this.qrCodeUsed = gateInfo.qrCodeUsed || false
@@ -433,7 +431,7 @@ outpassLogSchema.methods.recordReturn = async function(securityInfo, gateInfo = 
   this.actualReturnTime = new Date()
   this.returnRecordedBy = securityInfo.securityId
   this.returnSecurityName = securityInfo.securityName
-  this.returnSecurityEmployeeId = securityInfo.employeeId
+  this.returnSecurityEmployeeId = undefined // Removed employeeId
   this.returnGate = gateInfo.gateName || this.exitGate
   this.returnNotes = gateInfo.notes || ''
   this.status = 'returned'
@@ -489,8 +487,8 @@ outpassLogSchema.statics.getLogsForDateRange = function(startDate, endDate, filt
   
   return this.find(query)
     .populate('student', 'firstName lastName phone')
-    .populate('exitRecordedBy', 'firstName lastName employeeId')
-    .populate('returnRecordedBy', 'firstName lastName employeeId')
+    .populate('exitRecordedBy', 'firstName lastName')
+    .populate('returnRecordedBy', 'firstName lastName')
     .sort({ createdAt: -1 })
 }
 

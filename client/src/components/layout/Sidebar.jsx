@@ -29,6 +29,7 @@ const baseNavigation = [
 const adminOnlyNavigation = [
   { name: 'Wardens', href: '/wardens', icon: ShieldCheckIcon, gradient: 'from-amber-500 to-yellow-500' },
   { name: 'HODs', href: '/hods', icon: AcademicCapIcon, gradient: 'from-teal-500 to-cyan-500' },
+  { name: 'Security', href: '/security', icon: ShieldCheckIcon, gradient: 'from-orange-500 to-red-500' },
 ]
 
 const bottomNavigation = [

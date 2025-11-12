@@ -87,6 +87,8 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
       rollNumber,
       course,
       year,
+      // Year of study (1..6)
+      yearOfStudy,
       semester,
       department,
       hostelType,
@@ -113,6 +115,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
       rollNumber,
       course,
       year,
+      yearOfStudy,
       semester,
       department,
       hostelType,
@@ -127,6 +130,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     if (bloodGroup) userData.bloodGroup = bloodGroup;
     if (parentDetails) userData.parentDetails = parentDetails;
     if (permanentAddress) userData.permanentAddress = permanentAddress;
+    if (typeof yearOfStudy !== 'undefined') userData.yearOfStudy = yearOfStudy;
   }
 
   if (role === 'warden') {
@@ -145,7 +149,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
   }
 
   if (role === 'admin' || role === 'security' || role === 'parent') {
-    const { firstName, lastName, phone, adminRole, employeeId, dateOfBirth, gender, joiningDate, designation, currentShift, address, emergencyContact } = rest
+    const { firstName, lastName, phone, adminRole, dateOfBirth, gender, joiningDate, address, emergencyContact } = rest
     userData = { ...userData, firstName, lastName, phone }
 
     if (role === 'admin') {
@@ -153,7 +157,8 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     }
 
     if (role === 'security') {
-      Object.assign(userData, { employeeId, dateOfBirth, gender, joiningDate, designation, currentShift, address, emergencyContact })
+      // employeeId, designation and shift were removed from the security profile as requested.
+      Object.assign(userData, { dateOfBirth, gender, joiningDate, address, emergencyContact })
     }
   }
 
@@ -280,7 +285,15 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
       }
     }
 
-    await sendVerificationEmail(user.email, displayName, verificationCode)
+    // Only send verification email automatically when the creator is NOT an admin.
+    // Admin-created accounts should receive verification only when the user attempts first login.
+    if (req.user?.role !== 'admin') {
+      try {
+        await sendVerificationEmail(user.email, displayName, verificationCode)
+      } catch (emailErr) {
+        console.warn('Failed to send verification email for managed creation:', emailErr)
+      }
+    }
     
     // Persist generated password for admin retrieval if it was generated
     if (generatedPassword) {

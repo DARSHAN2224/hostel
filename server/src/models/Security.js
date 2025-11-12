@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { config } from '../config/config.js'
-import { USER_STATUS, SECURITY_SHIFT_TYPES } from '../utils/constants.js'
+import { USER_STATUS } from '../utils/constants.js'
 
 const securitySchema = new mongoose.Schema({
   // Personal Information
@@ -55,11 +55,6 @@ const securitySchema = new mongoose.Schema({
     type: String,
     default: 'Security'
   },
-  designation: {
-    type: String,
-    required: [true, 'Designation is required'],
-    enum: ['Security Guard', 'Head Security', 'Gate Keeper', 'Security Supervisor']
-  },
   
   // User Role & Status
   role: {
@@ -87,24 +82,6 @@ const securitySchema = new mongoose.Schema({
     }
   }],
   
-  // Shift Information
-  currentShift: {
-    type: String,
-    enum: Object.values(SECURITY_SHIFT_TYPES),
-    required: [true, 'Current shift is required']
-  },
-  shiftSchedule: [{
-    day: {
-      type: String,
-      enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    },
-    shift: {
-      type: String,
-      enum: Object.values(SECURITY_SHIFT_TYPES)
-    },
-    startTime: String, // Format: "HH:MM"
-    endTime: String    // Format: "HH:MM"
-  }],
   
   // Permissions and Access
   permissions: {
@@ -199,10 +176,8 @@ const securitySchema = new mongoose.Schema({
 
 // Indexes for better performance
 securitySchema.index({ email: 1 }, { unique: true })
-securitySchema.index({ employeeId: 1 }, { unique: true })
 securitySchema.index({ role: 1, status: 1 })
 securitySchema.index({ 'assignedGates.gateName': 1 })
-securitySchema.index({ currentShift: 1 })
 
 // Virtual for full name
 securitySchema.virtual('fullName').get(function() {
@@ -237,12 +212,12 @@ securitySchema.pre('save', async function(next) {
   }
 })
 
-// Pre-save middleware to update profile completion
+  // Pre-save middleware to update profile completion
 securitySchema.pre('save', function(next) {
   // Check if required fields for profile completion are filled
   const requiredFields = [
-    'firstName', 'lastName', 'email', 'phone', 'employeeId',
-    'dateOfBirth', 'gender', 'joiningDate', 'designation', 'currentShift'
+    'firstName', 'lastName', 'email', 'phone',
+    'dateOfBirth', 'gender', 'joiningDate'
   ]
   
   const addressFields = [
@@ -279,7 +254,6 @@ securitySchema.methods.generateTokens = function() {
     id: this._id,
     email: this.email,
     role: this.role,
-    employeeId: this.employeeId,
     assignedGates: this.assignedGates.map(gate => gate.gateName),
     permissions: this.permissions
   }
@@ -321,10 +295,8 @@ securitySchema.statics.findByEmail = function(email) {
   return this.findOne({ email: email.toLowerCase() }).select('+password')
 }
 
-// Static method to find by employee ID
-securitySchema.statics.findByEmployeeId = function(employeeId) {
-  return this.findOne({ employeeId: employeeId.toUpperCase() })
-}
+// Note: employeeId, designation and shift fields were removed by request.
+// If you need to lookup security by an alternate identifier, implement here.
 
 // Instance method to create password reset token
 securitySchema.methods.createPasswordResetToken = function() {
@@ -354,40 +326,8 @@ securitySchema.methods.recordOutpassProcessing = async function(type = 'exit') {
   await this.save({ validateBeforeSave: false })
 }
 
-// Static method to find security on duty for specific shift
-securitySchema.statics.findOnDuty = function(shift, gateName = null) {
-  const query = {
-    status: USER_STATUS.ACTIVE,
-    currentShift: shift,
-    'currentSession.isActive': true
-  }
-  
-  if (gateName) {
-    query['assignedGates.gateName'] = gateName
-  }
-  
-  return this.find(query)
-}
-
-// Static method to get security stats
-securitySchema.statics.getStats = async function() {
-  const stats = await this.aggregate([
-    {
-      $group: {
-        _id: {
-          shift: '$currentShift',
-          status: '$status'
-        },
-        count: { $sum: 1 },
-        totalOutpassesProcessed: { $sum: '$workStats.totalOutpassesProcessed' },
-        totalExitsRecorded: { $sum: '$workStats.totalExitsRecorded' },
-        totalReturnsRecorded: { $sum: '$workStats.totalReturnsRecorded' }
-      }
-    }
-  ])
-  
-  return stats
-}
+// Shift-related utilities removed. Keep statistics and duty queries simple or
+// implement a dedicated shift model if shift scheduling is required in future.
 
 // Method to check if security can process outpass
 securitySchema.methods.canProcessOutpass = function(gateName = null) {

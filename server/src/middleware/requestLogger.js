@@ -1,5 +1,6 @@
 import morgan from 'morgan';
 import logger, { morganStream } from '../config/logger.js';
+import util from 'util';
 
 /**
  * Morgan middleware for HTTP request logging
@@ -81,13 +82,24 @@ export const detailedRequestLogger = (req, res, next) => {
       responseTime: `${responseTime}ms`,
     };
 
-    // Add response body for errors or in development
-    if (res.statusCode >= 400 || process.env.NODE_ENV === 'development') {
-      // Truncate large responses
-      const responseData = JSON.stringify(data);
-      responseDetails.response = responseData.length > 1000 
-        ? responseData.substring(0, 1000) + '... (truncated)'
-        : data;
+  // Add response body for errors or in development
+  if (res.statusCode >= 400 || (globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV === 'development')) {
+      // Truncate large responses and avoid crashing on circular structures
+      let responseDataStr;
+      try {
+        responseDataStr = JSON.stringify(data);
+      } catch {
+        // Fallback: use util.inspect which can handle circular structures
+        try {
+          responseDataStr = util.inspect(data, { depth: 2, maxArrayLength: 50 });
+        } catch {
+          responseDataStr = '[unserializable response]';
+        }
+      }
+
+      responseDetails.response = responseDataStr.length > 1000
+        ? responseDataStr.substring(0, 1000) + '... (truncated)'
+        : responseDataStr;
     }
 
     // Log based on status code
@@ -124,14 +136,14 @@ export const detailedRequestLogger = (req, res, next) => {
  * Error request logger - logs failed requests with full context
  * This is called by the error handler to provide detailed error logging
  */
-export const logErrorRequest = (err, req, res) => {
+export const logErrorRequest = (err, req) => {
   const errorContext = {
     error: {
       name: err.name,
       message: err.message,
       statusCode: err.statusCode || 500,
       isOperational: err.isOperational || false,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+  stack: (globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV === 'development') ? err.stack : undefined,
     },
     request: {
       method: req.method,

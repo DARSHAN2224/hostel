@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import { config } from '../config/config.js'
 import logger from '../utils/logger.js'
+import util from 'util'
 
 /**
  * Database Connection Setup with Error Handling and Monitoring
@@ -38,7 +39,7 @@ export const connectDatabase = async () => {
     })
     
     // Exit process with failure
-    process.exit(1)
+    if (globalThis.process && globalThis.process.exit) globalThis.process.exit(1)
   }
 }
 
@@ -87,20 +88,22 @@ export const setupGracefulShutdown = () => {
     try {
       await mongoose.connection.close()
       logger.info('✅ Database connection closed successfully')
-      process.exit(0)
+      if (globalThis.process && globalThis.process.exit) globalThis.process.exit(0)
     } catch (error) {
       logger.error('❌ Error during database shutdown:', {
         error: error.message,
         stack: error.stack
       })
-      process.exit(1)
+      if (globalThis.process && globalThis.process.exit) globalThis.process.exit(1)
     }
   }
   
   // Listen for termination signals
-  process.on('SIGINT', () => gracefulExit('SIGINT'))
-  process.on('SIGTERM', () => gracefulExit('SIGTERM'))
-  process.on('SIGUSR2', () => gracefulExit('SIGUSR2')) // Nodemon restart
+  if (globalThis.process && globalThis.process.on) {
+    globalThis.process.on('SIGINT', () => gracefulExit('SIGINT'))
+    globalThis.process.on('SIGTERM', () => gracefulExit('SIGTERM'))
+    globalThis.process.on('SIGUSR2', () => gracefulExit('SIGUSR2')) // Nodemon restart
+  }
 }
 
 /**
@@ -193,11 +196,24 @@ export const dbUtils = {
 // Set mongoose debugging in development
 if (config.nodeEnv === 'development') {
   mongoose.set('debug', (collectionName, method, query, doc) => {
+    // Safely stringify query/doc to avoid crashes on circular structures
+    const safeStringify = (obj) => {
+      try {
+        return JSON.stringify(obj)
+      } catch {
+        try {
+          return util.inspect(obj, { depth: 2 })
+        } catch {
+          return '[unserializable]'
+        }
+      }
+    }
+
     logger.debug(`Mongoose: ${collectionName}.${method}`, {
       collection: collectionName,
       method,
-      query: JSON.stringify(query),
-      doc: JSON.stringify(doc)
+      query: safeStringify(query),
+      doc: safeStringify(doc)
     })
   })
 }

@@ -1,25 +1,64 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import Input from '../../components/ui/Input'
 import Button from '../../components/ui/Button'
 import toast from 'react-hot-toast'
 import authService from '../../services/authService'
-import { ROUTES } from '../../constants'
+import { ROUTES, STORAGE_KEYS } from '../../constants'
 
 export default function VerifyEmail() {
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Prefill email from navigation state or a pending verification marker
+  useEffect(() => {
+    if (location?.state?.email) return setEmail(location.state.email)
+    try {
+      const pending = localStorage.getItem(STORAGE_KEYS.PENDING_VERIFICATION_EMAIL)
+      if (pending) setEmail(pending)
+    } catch {
+      // ignore storage errors
+    }
+  }, [location])
 
   const submit = async (e) => {
     e.preventDefault()
     setLoading(true)
     const loader = toast.loading('Verifying...')
     try {
-      await authService.verifyEmail(email, code)
-      toast.success('Email verified. You may now login.', { id: loader })
-      navigate(ROUTES.LOGIN)
+      const res = await authService.verifyEmail(email, code)
+      const resp = res?.data || res
+
+      // If tokens are returned, store them and current user, then clear pending marker
+      try {
+        if (resp.accessToken) localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, resp.accessToken)
+        if (resp.refreshToken) localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, resp.refreshToken)
+        if (resp.user) localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(resp.user))
+        localStorage.removeItem(STORAGE_KEYS.PENDING_VERIFICATION_EMAIL)
+      } catch {
+        // ignore storage errors
+      }
+
+      toast.success('Email verified. Redirecting...', { id: loader })
+      // Redirect to role-specific dashboard if available, else fallback to HOME
+      const role = resp.user?.role
+      switch (role) {
+        case 'student':
+          return navigate('/student/dashboard')
+        case 'warden':
+          return navigate(ROUTES.DASHBOARD)
+        case 'admin':
+          return navigate('/admin/dashboard')
+        case 'security':
+          return navigate('/security/dashboard')
+        case 'hod':
+          return navigate('/hod/dashboard')
+        default:
+          return navigate(ROUTES.HOME)
+      }
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to verify email', { id: loader })
     } finally {

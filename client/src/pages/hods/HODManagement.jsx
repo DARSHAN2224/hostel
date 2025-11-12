@@ -76,8 +76,15 @@ export default function HODManagement() {
     setSearchTerm(e.target.value)
   }
 
+  const getFullName = (u) => {
+    if (!u) return ''
+    if (u.firstName) return `${u.firstName} ${u.lastName || ''}`.trim()
+    if (u.name) return String(u.name)
+    return ''
+  }
+
   const filteredHODs = Array.isArray(hods) ? hods.filter(hod =>
-    hod.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    getFullName(hod).toLowerCase().includes(searchTerm.toLowerCase()) ||
     hod.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     hod.department?.toLowerCase().includes(searchTerm.toLowerCase())
   ) : []
@@ -94,9 +101,11 @@ export default function HODManagement() {
 
   const handleEdit = (hod) => {
     setSelectedHOD(hod)
+    // Normalize to firstName/lastName for the edit form
+    const nameParts = hod.name ? String(hod.name).split(' ') : []
     setEditData({
-      firstName: hod.firstName || '',
-      lastName: hod.lastName || '',
+      firstName: hod.firstName || nameParts[0] || '',
+      lastName: hod.lastName || nameParts.slice(1).join(' ') || '',
       email: hod.email || '',
       phone: hod.phone || '',
       department: hod.department || '',
@@ -119,8 +128,14 @@ export default function HODManagement() {
 
   const saveEdit = async () => {
     try {
-      // TODO: Implement API call
-      // await hodService.update(selectedHOD._id, editData)
+      const payload = {
+        name: `${editData.firstName || ''} ${editData.lastName || ''}`.trim(),
+        email: editData.email,
+        phone: editData.phone,
+        department: editData.department,
+        status: editData.status
+      }
+      await hodService.update(selectedHOD._id, payload)
       toast.success('HOD updated successfully')
       setShowEditModal(false)
       setSelectedHOD(null)
@@ -139,7 +154,13 @@ export default function HODManagement() {
 
   const saveAdd = async () => {
     try {
-      const resp = await hodService.create(addData)
+      const payload = {
+        name: `${addData.firstName || ''} ${addData.lastName || ''}`.trim(),
+        email: addData.email,
+        phone: addData.phone,
+        department: addData.department
+      }
+      const resp = await hodService.create(payload)
       const genPwd = resp?.data?.data?.generatedPassword || resp?.data?.generatedPassword
       if (genPwd) {
         toast.success(`HOD added — password: ${genPwd}`)
@@ -364,7 +385,7 @@ export default function HODManagement() {
                           </Motion.div>
                           <div className="ml-4">
                             <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                              {hod.name || 'N/A'}
+                              {getFullName(hod) || 'N/A'}
                             </div>
                             <div className="text-sm text-slate-500 dark:text-slate-400">
                               {hod.email}
@@ -459,7 +480,7 @@ export default function HODManagement() {
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {selectedHOD.name}
+                  {getFullName(selectedHOD)}
                 </h3>
                 <p className="text-slate-500 dark:text-slate-400">
                   {selectedHOD.email}
@@ -512,11 +533,18 @@ export default function HODManagement() {
         size="md"
       >
         <div className="space-y-4">
-          <Input
-            label="Name"
-            value={editData.name || ''}
-            onChange={(e) => setEditData((prev) => ({ ...prev, name: e.target.value }))}
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="First Name"
+              value={editData.firstName || ''}
+              onChange={(e) => setEditData((prev) => ({ ...prev, firstName: e.target.value }))}
+            />
+            <Input
+              label="Last Name"
+              value={editData.lastName || ''}
+              onChange={(e) => setEditData((prev) => ({ ...prev, lastName: e.target.value }))}
+            />
+          </div>
           <Input
             label="Email"
             type="email"
@@ -569,12 +597,20 @@ export default function HODManagement() {
         size="md"
       >
         <div className="space-y-4">
-          <Input
-            label="Name"
-            value={addData.name || ''}
-            onChange={(e) => setAddData((prev) => ({ ...prev, name: e.target.value }))}
-            placeholder="Enter HOD name"
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="First Name"
+              value={addData.firstName || ''}
+              onChange={(e) => setAddData((prev) => ({ ...prev, firstName: e.target.value }))}
+              placeholder="First name"
+            />
+            <Input
+              label="Last Name"
+              value={addData.lastName || ''}
+              onChange={(e) => setAddData((prev) => ({ ...prev, lastName: e.target.value }))}
+              placeholder="Last name"
+            />
+          </div>
           <Input
             label="Email"
             type="email"
@@ -630,7 +666,7 @@ export default function HODManagement() {
             </div>
           </div>
           <p className="text-slate-600 dark:text-slate-400">
-            Are you sure you want to delete <strong>{selectedHOD?.name}</strong>? All their data
+            Are you sure you want to delete <strong>{getFullName(selectedHOD)}</strong>? All their data
             will be permanently removed.
           </p>
           <ModalFooter>

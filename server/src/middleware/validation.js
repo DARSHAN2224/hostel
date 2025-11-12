@@ -451,13 +451,11 @@ export const managedCreateSchema = Joi.object({
   // Admin-specific
   adminRole: Joi.string().when('role', { is: 'admin', then: Joi.required(), otherwise: Joi.forbidden() }),
 
-  // Security-specific (required by model)
-  employeeId: Joi.string().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
   dateOfBirth: Joi.date().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
   gender: Joi.string().valid('male', 'female', 'other').when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
   joiningDate: Joi.date().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
-  designation: Joi.string().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
-  currentShift: Joi.string().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
+  // Note: employeeId, designation and currentShift are not required for security
+  // and were removed from the security schema per product decision.
   address: Joi.object({
     city: Joi.string().required(),
     state: Joi.string().required(),
@@ -478,7 +476,12 @@ export const managedCreateSchema = Joi.object({
     // Academic year (e.g. 2025)
     year: Joi.number().integer().min(2000).max(2100).required(),
     // Year of study (1..6)
-    yearOfStudy: Joi.number().integer().min(1).max(6).optional(),
+    yearOfStudy: Joi.number().integer().min(1).max(6).required().messages({
+      'any.required': 'Year of study is required',
+      'number.base': 'Year of study must be a number',
+      'number.min': 'Year of study must be at least 1',
+      'number.max': 'Year of study cannot exceed 6',
+    }),
     semester: Joi.number().integer().min(1).max(12).required(),
     department: Joi.string().required(),
     hostelType: Joi.string().valid('boys', 'girls').required(),

@@ -20,6 +20,7 @@ import StudentDashboard from './pages/students/StudentDashboard'
 import OutpassManagement from './pages/outpass/OutpassManagement'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import SecurityDashboard from './pages/security/SecurityDashboard'
+import SecurityManagement from './pages/security/SecurityManagement'
 import HODDashboard from './pages/hod/HODDashboard'
 import Settings from './pages/settings/Settings'
 import OutpassHistory from './pages/history/OutpassHistory'
@@ -218,6 +219,16 @@ function App() {
                   <SecurityDashboard />
                 </ProtectedRoute>
               } 
+            />
+            <Route 
+              path="/security"
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <SecurityManagement />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              }
             />
             <Route 
               path="/hod/dashboard"

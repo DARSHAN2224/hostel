@@ -498,7 +498,8 @@ export default function AdminDashboard() {
               <Input label="First Name" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), firstName:e.target.value}))} />
               <Input label="Last Name" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), lastName:e.target.value}))} />
             </div>
-            <Input label="Email" type="email" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), email:e.target.value}))} />
+              <Input label="Email" type="email" glassmorphic required onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), email:e.target.value}))} />
+              <Input label="Phone" type="tel" glassmorphic onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), phone:e.target.value}))} />
             <Select label="Role" glassmorphic required onChange={(e)=>{
                 const role = e.target.value
                 if (role === USER_ROLES.STUDENT) {
@@ -666,13 +667,6 @@ export default function AdminDashboard() {
                 className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700"
               >
                 <h4 className="font-semibold text-slate-900 dark:text-white">Warden Details</h4>
-                <Input
-                  label="Phone"
-                  glassmorphic
-                  required
-                  value={selectedUser?.phone || ''}
-                  onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), phone: e.target.value }))}
-                />
                 <Select 
                   label="Hostel Type" 
                   glassmorphic 

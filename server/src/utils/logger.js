@@ -4,6 +4,7 @@ import { config } from '../config/config.js'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import util from 'util'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -28,9 +29,17 @@ const logFormat = winston.format.combine(
       log += `\n${stack}`
     }
     
-    // Add metadata if present
+    // Add metadata if present (use safe stringify to avoid circular errors)
     if (Object.keys(meta).length > 0) {
-      log += `\n${JSON.stringify(meta, null, 2)}`
+      try {
+        log += `\n${JSON.stringify(meta, null, 2)}`
+      } catch {
+        try {
+          log += `\n${util.inspect(meta, { depth: 2, colors: false })}`
+        } catch {
+          log += '\n[unserializable meta]'
+        }
+      }
     }
     
     return log

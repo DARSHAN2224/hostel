@@ -1,6 +1,7 @@
 import winston from 'winston';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import util from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,7 +28,7 @@ winston.addColors(colors);
 
 // Determine log level based on environment
 const level = () => {
-  const env = process.env.NODE_ENV || 'development';
+  const env = (globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV) || 'development';
   const isDevelopment = env === 'development';
   return isDevelopment ? 'debug' : 'warn';
 };
@@ -55,9 +56,18 @@ const consoleFormat = winston.format.combine(
       delete meta[Symbol.for('level')];
       delete meta[Symbol.for('splat')];
       
-      // Format metadata as JSON with nice indentation
+      // Format metadata as JSON with nice indentation (safe stringify)
       if (Object.keys(meta).length > 0) {
-        log += '\n' + JSON.stringify(meta, null, 2);
+        try {
+          log += '\n' + JSON.stringify(meta, null, 2);
+        } catch {
+          // Fallback to util.inspect which can handle circular structures
+          try {
+            log += '\n' + util.inspect(meta, { depth: 2, colors: true });
+          } catch {
+            log += '\n[unserializable meta]';
+          }
+        }
       }
     }
     

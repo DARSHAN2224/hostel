@@ -121,16 +121,28 @@ export const login = asyncHandler(async (req, res, next) => {
     return next(new AppError('Invalid email or password', 401))
   }
 
-  // Require email verified
-  // Require email verification for non-admin users
-  if (user.role !== 'admin' && !user.isEmailVerified) {
-    return next(new AppError('Please verify your email to continue.', 403))
-  }
-
-  // Check password
+  // Check password first (we only send verification email after confirming identity)
   const isPasswordCorrect = await user.correctPassword(password, user.password)
   if (!isPasswordCorrect) {
     return next(new AppError('Invalid email or password', 401))
+  }
+
+  // If user is not admin and email not verified, generate & send verification email on first login attempt
+  if (user.role !== 'admin' && !user.isEmailVerified) {
+    const verificationCode = generateVerificationCode()
+    user.emailVerificationToken = verificationCode
+    user.emailVerificationExpires = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    await user.save({ validateBeforeSave: false })
+
+    const displayName = user.name || user.firstName || 'User'
+    try {
+      await sendVerificationEmail(user.email, displayName, verificationCode)
+    } catch (emailErr) {
+      console.warn('Failed to send verification email on login attempt:', emailErr)
+      // Do not leak internal error; fall through to the generic message below
+    }
+
+    return next(new AppError('Please verify your email to continue. A verification email has been sent.', 403))
   }
 
   // Generate tokens
@@ -310,9 +322,13 @@ export const verifyEmail = asyncHandler(async (req, res, next) => {
   setTokenCookie(res, 'refresh_token', refreshToken, 30 * 24 * 60 * 60 * 1000, false)
 
   await user.updateLastLogin()
-
   res.json(
-    new ApiResponse(200, { user: user.toJSON(), mustChangePassword: user.mustChangePassword || false }, 'Email verified successfully')
+    new ApiResponse(200, {
+      user: user.toJSON(),
+      mustChangePassword: user.mustChangePassword || false,
+      accessToken,
+      refreshToken
+    }, 'Email verified successfully')
   )
 })
 

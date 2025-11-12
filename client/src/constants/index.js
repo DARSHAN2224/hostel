@@ -103,6 +103,10 @@ export const STORAGE_KEYS = {
   ACCESS_TOKEN: 'accessToken',
   REFRESH_TOKEN: 'refreshToken',
   USER_DATA: 'userData',
+  // When a user has supplied correct credentials but must verify email,
+  // store the email here so route-guards can restrict navigation to the
+  // verify page until verification completes.
+  PENDING_VERIFICATION_EMAIL: 'pendingVerificationEmail',
   THEME: 'theme'
 }
 

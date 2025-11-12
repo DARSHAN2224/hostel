@@ -88,31 +88,26 @@ const RoleLogin = () => {
     // Check if user is already logged in with valid tokens
     const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)
     const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
-    
+
     if (accessToken && refreshToken) {
       // User is already authenticated, redirect to dashboard based on role
       const redirectToDashboard = () => {
         switch (role) {
           case 'student':
-            navigate('/student/dashboard', { replace: true })
-            break
+            return navigate('/student/dashboard', { replace: true })
           case 'warden':
-            navigate(ROUTES.DASHBOARD, { replace: true })
-            break
+            return navigate(ROUTES.DASHBOARD, { replace: true })
           case 'admin':
-            navigate('/admin/dashboard', { replace: true })
-            break
+            return navigate('/admin/dashboard', { replace: true })
           case 'security':
-            navigate('/security/dashboard', { replace: true })
-            break
+            return navigate('/security/dashboard', { replace: true })
           case 'hod':
-            navigate('/hod/dashboard', { replace: true })
-            break
+            return navigate('/hod/dashboard', { replace: true })
           default:
-            navigate(ROUTES.DASHBOARD, { replace: true })
+            return navigate(ROUTES.DASHBOARD, { replace: true })
         }
       }
-      
+
       redirectToDashboard()
     }
   }, [role, navigate])
@@ -167,11 +162,41 @@ const RoleLogin = () => {
         }
       }, 500)
     } catch (error) {
-      const message = error.response?.data?.message || error.message || 'Invalid credentials'
+      // Our api client throws a plain Error with .status and .data (see api.js).
+      const status = error?.response?.status || error?.status || error?.data?.status
+      const serverMessage = error?.response?.data?.message || error?.data?.message
+      const message = serverMessage || error.message || 'Invalid credentials'
       toast.error(message, { id: loadingToast })
-      // If server indicates email is unverified, surface quick actions
-      if (error.response?.status === 403 && message.toLowerCase().includes('verify')) {
+
+      // Debug: log multiple possible error shapes for easier troubleshooting
+      console.log('[Auth] login error shapes:', {
+        statusFromResponse: error?.response?.status,
+        thrownStatus: error?.status,
+        data: error?.response?.data || error?.data,
+        message
+      })
+
+      // Treat status 403 as verification-required
+      if (Number(status) === 403) {
         setUnverifiedEmail(data.email)
+
+        try {
+          localStorage.setItem(STORAGE_KEYS.PENDING_VERIFICATION_EMAIL, data.email)
+        } catch {
+          // ignore storage errors
+        }
+
+        console.log('[Auth] Redirecting user to verify page for', data.email, 'role:', role)
+
+        if (role !== 'admin') {
+          try {
+            navigate(ROUTES.VERIFY_EMAIL || '/verify-email', { state: { email: data.email }, replace: true })
+          } catch (navErr) {
+            console.log('[Auth] navigate failed:', navErr)
+            // fallback to direct assignment in case navigate isn't working
+            window.location.href = ROUTES.VERIFY_EMAIL || '/verify-email'
+          }
+        }
       }
     } finally {
       setIsLoading(false)
