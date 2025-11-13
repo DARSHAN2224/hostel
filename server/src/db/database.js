@@ -27,8 +27,19 @@ export const connectDatabase = async () => {
   try {
     logger.info('🔄 Connecting to MongoDB...')
     
-    const conn = await mongoose.connect(config.database.url, connectionOptions)
-    
+    // If a DB name is provided in config (from env DB_NAME), prefer that
+    // when connecting. This avoids Mongo defaulting to the 'test' DB when the
+    // connection URI does not include an explicit database name (common with
+    // Atlas URIs that end with no path). Passing `dbName` here makes the
+    // runtime DB explicit and controlled by your `.env`.
+    const connectOptions = {
+      ...connectionOptions,
+      // only set dbName if present to avoid overriding an explicit URI path
+      ...(config.database.name ? { dbName: config.database.name } : {})
+    }
+
+    const conn = await mongoose.connect(config.database.url, connectOptions)
+
     logger.info(`✅ MongoDB Connected: ${conn.connection.host}:${conn.connection.port}/${conn.connection.name}`)
     
     // Set up connection event listeners

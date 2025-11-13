@@ -580,20 +580,21 @@ export const resetPassword = asyncHandler(async (req, res, next) => {
 
 // GET /users/stats - counts per role and totals
 export const getUserStats = asyncHandler(async (req, res) => {
-  const [students, wardens, security, admins] = await Promise.all([
+  const [students, wardens, security, admins, hods] = await Promise.all([
     Student.countDocuments({}),
     Warden.countDocuments({}),
     Security.countDocuments({}),
     Admin.countDocuments({}),
+    Hod.countDocuments({}),
   ])
 
-  const totalUsers = students + wardens + security + admins
+  const totalUsers = students + wardens + security + admins + hods
   res.json(new ApiResponse(200, {
     totalUsers,
     studentsCount: students,
     wardensCount: wardens,
     securityCount: security,
-    hodCount: 0, // HODs managed separately
+    hodCount: hods,
   }, 'User stats'))
 })
 
