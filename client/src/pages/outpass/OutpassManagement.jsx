@@ -28,6 +28,8 @@ import { getOutpasses, approveOutpass, rejectOutpass } from '../../services/outp
 import { formatDate, formatRelativeTime } from '../../utils/helpers'
 import { OUTPASS_STATUS } from '../../constants'
 import toast from 'react-hot-toast'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/authSlice'
 
 const TABS = [
   { id: 'pending', label: 'Pending', icon: ClockIcon, gradient: 'from-amber-500 to-orange-500' },
@@ -55,6 +57,7 @@ export default function OutpassManagement() {
   const [rejectReason, setRejectReason] = useState('')
   const [otpValue, setOtpValue] = useState('')
   const [showOtpModal, setShowOtpModal] = useState(false)
+  const currentUser = useSelector(selectUser)
 
   const fetchOutpasses = useCallback(async () => {
     try {
@@ -230,10 +233,15 @@ export default function OutpassManagement() {
     }
 
     try {
+      if (currentUser?.role !== 'warden') {
+        toast.error('Only wardens may submit the parent OTP via this portal. Ask the parent to use the parent portal or use the public approval flow.')
+        return
+      }
+
       const svc = await import('../../services/outpassService')
       const fn = svc.parentApprove || svc.default.parentApprove
       await fn(selectedOutpass._id, otpValue.trim(), '')
-      toast.success('Parent OTP accepted — outpass approved')
+      toast.success('Parent OTP accepted — outpass verified')
       setShowOtpModal(false)
       setOtpValue('')
       fetchOutpasses()
@@ -423,10 +431,13 @@ export default function OutpassManagement() {
                                 size="sm"
                                 icon={CheckCircleIcon}
                                 onClick={() => handleApprove(outpass)}
-                                disabled={
-                                  (outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved) ||
-                                  (outpass.hodApprovalRequested && !outpass.hodApproval?.approved)
-                                }
+                                    disabled={
+                                      // Parent OTP requested but not yet approved -> disable
+                                      (outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved) ||
+                                      // If parent has approved, only warden can approve (disable for non-wardens)
+                                      (outpass.parentApproval?.approved && currentUser?.role !== 'warden') ||
+                                      (outpass.hodApprovalRequested && !outpass.hodApproval?.approved)
+                                    }
                                 aria-label="Approve"
                                 title="Approve"
                               />
@@ -534,6 +545,7 @@ export default function OutpassManagement() {
                           className="flex-1"
                           disabled={
                             (outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved) ||
+                            (outpass.parentApproval?.approved && currentUser?.role !== 'warden') ||
                             (outpass.hodApprovalRequested && !outpass.hodApproval?.approved)
                           }
                           aria-label="Approve"
@@ -661,8 +673,19 @@ export default function OutpassManagement() {
                       setShowViewModal(false)
                       handleApprove(selectedOutpass)
                     }}
+                    disabled={
+                      (selectedOutpass.parentApproval?.requestedAt && !selectedOutpass.parentApproval?.approved) ||
+                      (selectedOutpass.parentApproval?.approved && currentUser?.role !== 'warden') ||
+                      (selectedOutpass.hodApprovalRequested && !selectedOutpass.hodApproval?.approved)
+                    }
                     aria-label="Approve"
-                    title="Approve"
+                    title={
+                      selectedOutpass.parentApproval?.requestedAt && !selectedOutpass.parentApproval?.approved
+                        ? 'Awaiting parent verification'
+                        : (selectedOutpass.parentApproval?.approved && currentUser?.role !== 'warden'
+                          ? 'Only assigned warden may approve after parent verification'
+                          : 'Approve')
+                    }
                   />
                   <Button
                     variant="danger"
@@ -690,13 +713,16 @@ export default function OutpassManagement() {
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-500 dark:text-slate-400">Enter the OTP sent to the parent to confirm approval.</p>
+          {currentUser?.role !== 'warden' && (
+            <p className="text-xs text-yellow-700 dark:text-yellow-300">Only wardens can submit the parent OTP here. Parents should use the parent portal/public approval link.</p>
+          )}
           <Input placeholder="Enter 6-digit OTP" value={otpValue} onChange={(e) => setOtpValue(e.target.value)} />
           <div className="flex justify-end">
             <Button variant="outline" size="sm" onClick={resendOtp}>Resend OTP</Button>
           </div>
           <ModalFooter>
             <Button variant="ghost" onClick={() => setShowOtpModal(false)}>Cancel</Button>
-            <Button variant="success" onClick={submitOtp}>Submit OTP</Button>
+            <Button variant="success" onClick={submitOtp} disabled={currentUser?.role !== 'warden'}>Submit OTP</Button>
           </ModalFooter>
         </div>
       </Modal>

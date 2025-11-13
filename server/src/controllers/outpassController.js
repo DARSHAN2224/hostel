@@ -25,6 +25,13 @@ const outpassController = {
 
       if (!student) return res.status(404).json({ message: 'Student not found' });
 
+      // Prevent creating a new outpass if the student already has an active/pending/approved/out outpass
+      const activeStatuses = ['pending', 'approved', 'approved_by_warden', 'approved_by_hod', 'out']
+      const existingActive = await OutpassRequest.countDocuments({ student: student._id, status: { $in: activeStatuses } })
+      if (existingActive > 0) {
+        return res.status(400).json({ message: 'Student has an active or pending outpass. New requests are allowed only after the previous outpass is completed.' })
+      }
+
       let hodId = student.hodId;
       let hod = hodId ? await Hod.findById(hodId) : null;
 
@@ -46,6 +53,13 @@ const outpassController = {
         hod: hod ? hod._id : undefined
       });
       await outpassRequest.save();
+      // Increment student's activeOutpasses counter
+      try {
+        student.activeOutpasses = (student.activeOutpasses || 0) + 1
+        await student.save({ validateBeforeSave: false })
+      } catch (incErr) {
+        console.warn('Failed to increment student.activeOutpasses', incErr && incErr.message ? incErr.message : incErr)
+      }
       res.status(201).json({ message: 'Outpass request created', outpassRequest });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
@@ -230,29 +244,45 @@ const outpassController = {
   // Warden: Approve outpass request
   async wardenApproveOutpass(req, res) {
     try {
-      // Allow warden and admin to approve
-      if (!['warden', 'admin'].includes(req.user.role)) {
-        return res.status(403).json({ message: 'Access denied. Only warden or admin can approve outpasses.' });
-      }
       const { requestId } = req.params;
       const { comments } = req.body;
       const outpass = await OutpassRequest.findById(requestId);
       if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
-      
+
+      // If parent OTP was requested but not yet approved, do not allow approval
+      if (outpass.parentApproval && outpass.parentApproval.requestedAt && !outpass.parentApproval.approved) {
+        return res.status(403).json({ message: 'Cannot approve until parent verification is completed' });
+      }
+
+      // If parent approval is present, only the assigned warden may approve (prevent admin bypass)
+      if (outpass.parentApproval && outpass.parentApproval.approved) {
+        if (req.user.role !== 'warden') {
+          return res.status(403).json({ message: 'Only the assigned warden can approve after parent verification' });
+        }
+        if (outpass.warden && outpass.warden.toString() !== req.user.id) {
+          return res.status(403).json({ message: 'Only the assigned warden can approve this outpass' });
+        }
+      } else {
+        // If no parent approval involved, allow warden or admin
+        if (!['warden', 'admin'].includes(req.user.role)) {
+          return res.status(403).json({ message: 'Access denied. Only warden or admin can approve outpasses.' });
+        }
+      }
+
       outpass.wardenApproval = {
         approved: true,
         approvedAt: new Date(),
         approvedBy: req.user.id,
         comments
       };
-      
+
       // If HOD approval is requested, mark as approved_by_warden, else mark as approved
       if (outpass.hodApprovalRequested) {
         outpass.status = 'approved_by_warden';
       } else {
         outpass.status = 'approved';
       }
-      
+
       await outpass.save();
       res.json({ message: 'Outpass approved by warden', outpass });
     } catch (err) {
@@ -279,6 +309,16 @@ const outpassController = {
       outpass.rejectedByModel = 'Warden';
       
       await outpass.save();
+      // Decrement student's activeOutpasses (if present)
+      try {
+        const stud = await Student.findById(outpass.student)
+        if (stud && stud.activeOutpasses && stud.activeOutpasses > 0) {
+          stud.activeOutpasses = Math.max(0, stud.activeOutpasses - 1)
+          await stud.save({ validateBeforeSave: false })
+        }
+      } catch (decErr) {
+        console.warn('Failed to decrement student.activeOutpasses on reject', decErr && decErr.message ? decErr.message : decErr)
+      }
       res.json({ message: 'Outpass rejected by warden', outpass });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
@@ -386,6 +426,16 @@ const outpassController = {
         return res.status(400).json({ message: 'Student has not exited yet' });
       }
       await outpass.recordReturn(req.user.id);
+      // Decrement student's activeOutpasses (student has returned)
+      try {
+        const stud = await Student.findById(outpass.student)
+        if (stud && stud.activeOutpasses && stud.activeOutpasses > 0) {
+          stud.activeOutpasses = Math.max(0, stud.activeOutpasses - 1)
+          await stud.save({ validateBeforeSave: false })
+        }
+      } catch (decErr) {
+        console.warn('Failed to decrement student.activeOutpasses on return', decErr && decErr.message ? decErr.message : decErr)
+      }
       res.json({ message: 'Return recorded successfully', outpass });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
@@ -490,6 +540,16 @@ const outpassController = {
       outpass.cancelledBy = req.user.id;
 
       await outpass.save();
+      // Decrement student's activeOutpasses (if present)
+      try {
+        const stud = await Student.findById(outpass.student)
+        if (stud && stud.activeOutpasses && stud.activeOutpasses > 0) {
+          stud.activeOutpasses = Math.max(0, stud.activeOutpasses - 1)
+          await stud.save({ validateBeforeSave: false })
+        }
+      } catch (decErr) {
+        console.warn('Failed to decrement student.activeOutpasses on cancel', decErr && decErr.message ? decErr.message : decErr)
+      }
       res.json({ message: 'Outpass cancelled successfully', outpass });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
@@ -719,6 +779,13 @@ const outpassController = {
     try {
       const { requestId } = req.params;
       const { otp, comments } = req.body;
+
+      // If this endpoint is called by an authenticated user, only wardens are allowed
+      // to submit the OTP on behalf of the parent. Parents should use the public
+      // `/parent/approve-public/:requestId` endpoint (rate-limited) or the parent portal.
+      if (req.user && req.user.role && req.user.role !== 'warden') {
+        return res.status(403).json({ message: 'Only wardens can submit parent OTP via this portal' });
+      }
 
       const outpass = await OutpassRequest.findById(requestId);
       if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
