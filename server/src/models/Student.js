@@ -462,9 +462,44 @@ studentSchema.statics.getStats = async function() {
 }
 
 // Method to check if student can request outpass
+// Compute profile completion ratio dynamically (useful for realtime checks)
+studentSchema.methods.getProfileCompletion = function() {
+  const profileFields = [
+    'firstName','lastName','email','phone','studentId','rollNumber',
+    'course','year','yearOfStudy','semester','department',
+    'hostelType','hostelBlock','roomNumber',
+    'permanentAddress.street','permanentAddress.city','permanentAddress.state','permanentAddress.zipCode',
+    'dateOfBirth','gender'
+  ]
+  const parentBlockFields = [
+    'parentDetails.fatherName','parentDetails.motherName','parentDetails.guardianPhone','parentDetails.guardianEmail'
+  ]
+
+  let filled = 0
+  profileFields.forEach(field => {
+    const keys = field.split('.')
+    const val = keys.reduce((obj, key) => obj && obj[key], this)
+    if (val !== undefined && val !== null && String(val).trim() !== '') filled++
+  })
+
+  const anyParent = parentBlockFields.some(field => {
+    const keys = field.split('.')
+    const val = keys.reduce((obj, key) => obj && obj[key], this)
+    return val !== undefined && val !== null && String(val).trim() !== ''
+  })
+  const parentBlockFilled = anyParent ? 1 : 0
+
+  const totalConsidered = profileFields.length + 1
+  const totalFilled = filled + parentBlockFilled
+  const ratio = totalFilled / totalConsidered
+
+  return { ratio, filled: totalFilled, total: totalConsidered, isComplete: ratio >= 0.7 }
+}
+
 studentSchema.methods.canRequestOutpass = function() {
+  const completion = this.getProfileCompletion()
   return this.status === USER_STATUS.ACTIVE && 
-         this.profileCompleted && 
+         completion.isComplete && 
          this.activeOutpasses < 3
 }
 

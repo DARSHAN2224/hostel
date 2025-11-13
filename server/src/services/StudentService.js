@@ -341,23 +341,23 @@ class StudentService {
   async canRequestOutpass(id) {
     const student = await StudentRepository.findById(id)
 
-    const canRequest = student.canRequestOutpass()
-    
+    // Use dynamic profile completion computation to avoid relying on stale stored flags
+    const profileInfo = typeof student.getProfileCompletion === 'function'
+      ? student.getProfileCompletion()
+      : { ratio: student.profileCompleted ? 1 : 0, isComplete: !!student.profileCompleted }
+
+    const canRequest = student.status === USER_STATUS.ACTIVE && profileInfo.isComplete && student.activeOutpasses < 3
+
     const reasons = []
-    if (student.status !== USER_STATUS.ACTIVE) {
-      reasons.push('Account is not active')
-    }
-    if (!student.profileCompleted) {
-      reasons.push('Profile is incomplete')
-    }
-    if (student.activeOutpasses >= 3) {
-      reasons.push('Maximum active outpasses limit reached')
-    }
+    if (student.status !== USER_STATUS.ACTIVE) reasons.push('Account is not active')
+    if (!profileInfo.isComplete) reasons.push('Profile is incomplete')
+    if (student.activeOutpasses >= 3) reasons.push('Maximum active outpasses limit reached')
 
     return {
       canRequest,
       activeOutpasses: student.activeOutpasses,
       maxAllowed: 3,
+      profileCompletion: { ratio: profileInfo.ratio, filled: profileInfo.filled, total: profileInfo.total },
       reasons: canRequest ? [] : reasons
     }
   }
