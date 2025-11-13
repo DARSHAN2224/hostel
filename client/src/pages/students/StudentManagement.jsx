@@ -28,6 +28,7 @@ import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import studentService from '../../services/studentService'
 import userService from '../../services/userService'
+import securityService from '../../services/securityService'
 import { DEPARTMENTS, HOSTEL_BLOCKS, VALIDATION, COURSES } from '../../constants'
 
 import toast from 'react-hot-toast'
@@ -46,6 +47,9 @@ export default function StudentManagement() {
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [showViewModal, setShowViewModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [studentsOutList, setStudentsOutList] = useState([])
+  const [returnedLogs, setReturnedLogs] = useState([])
+  const [outLoading, setOutLoading] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editData, setEditData] = useState({})
   const [showAddModal, setShowAddModal] = useState(false)
@@ -155,7 +159,34 @@ export default function StudentManagement() {
 
   useEffect(() => {
     fetchStudents()
+    fetchStudentsOut()
+    fetchReturnedLogs()
   }, [fetchStudents])
+
+  const fetchStudentsOut = async () => {
+    try {
+      setOutLoading(true)
+      const resp = await securityService.getStudentsOut({ limit: 10 })
+      const data = resp?.data?.data || resp?.data || resp
+      setStudentsOutList(data?.outpasses || data?.outpasses || [])
+    } catch (err) {
+      console.error('Failed to fetch students out:', err)
+      setStudentsOutList([])
+    } finally {
+      setOutLoading(false)
+    }
+  }
+
+  const fetchReturnedLogs = async () => {
+    try {
+      const resp = await securityService.getReturnedLogs({ limit: 10 })
+      const data = resp?.data?.data || resp?.data || resp
+      setReturnedLogs(data?.logs || [])
+    } catch (err) {
+      console.error('Failed to fetch returned logs:', err)
+      setReturnedLogs([])
+    }
+  }
 
   const handleSearch = (e) => {
     setSearchTerm(e.target.value)
@@ -534,27 +565,74 @@ export default function StudentManagement() {
         </Card>
 
         {/* Students Table */}
-        <Card glassmorphic>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-display font-bold text-slate-900 dark:text-white">
-              Students List
-              {' '}
-              <span className="ml-3 text-sm font-normal text-slate-500 dark:text-slate-400">
-                ({filteredStudents.length} students)
-              </span>
-            </h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={ArrowPathIcon}
-              onClick={fetchStudents}
-            >
-              Refresh
-            </Button>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <Card glassmorphic>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-display font-bold text-slate-900 dark:text-white">
+                  Students List
+                  {' '}
+                  <span className="ml-3 text-sm font-normal text-slate-500 dark:text-slate-400">({filteredStudents.length} students)</span>
+                </h2>
+                <Button variant="ghost" size="sm" icon={ArrowPathIcon} onClick={fetchStudents}>Refresh</Button>
+              </div>
+
+              {renderTableContent()}
+            </Card>
           </div>
 
-          {renderTableContent()}
-        </Card>
+          {/* Right column: Security quick panels */}
+          <div className="space-y-4">
+            <Card>
+              <h3 className="font-semibold">Students Currently Out</h3>
+              <p className="text-sm text-slate-500">Students verified by security and not yet returned</p>
+              <div className="mt-3 space-y-2">
+                {outLoading ? (
+                  <div className="text-sm text-slate-500">Loading...</div>
+                ) : (studentsOutList.length === 0 ? (
+                  <div className="text-sm text-slate-400">No students currently out</div>
+                ) : (
+                  studentsOutList.map(o => (
+                    <div key={o._id} className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">{o.student?.firstName} {o.student?.lastName}</div>
+                        <div className="text-xs text-slate-500">{o.student?.rollNumber} • Block {o.student?.hostelBlock}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-slate-400">{o.exitTime ? new Date(o.exitTime).toLocaleTimeString() : ''}</div>
+                        <Button size="xs" variant="ghost" onClick={() => handleView(o.student)} className="mt-1">View</Button>
+                      </div>
+                    </div>
+                  ))
+                ))}
+              </div>
+            </Card>
+
+            <Card>
+              <h3 className="font-semibold">Recent Returns (History)</h3>
+              <p className="text-sm text-slate-500">Students who have returned recently</p>
+              <div className="mt-3 space-y-2">
+                {returnedLogs.length === 0 ? (
+                  <div className="text-sm text-slate-400">No recent returns</div>
+                ) : (
+                  returnedLogs.map(log => (
+                    <div key={log._id} className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">{log.student?.firstName} {log.student?.lastName}</div>
+                        <div className="text-xs text-slate-500">{log.student?.rollNumber} • Block {log.student?.hostelBlock}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-slate-400">{log.actualReturnTime ? new Date(log.actualReturnTime).toLocaleString() : ''}</div>
+                        <Button size="xs" variant="ghost" onClick={() => handleView(log.student)} className="mt-1">View</Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </div>
+        </div>
+        
       </Motion.div>
 
       {/* View Student Modal */}

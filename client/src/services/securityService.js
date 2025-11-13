@@ -96,6 +96,17 @@ export const securityService = {
     return await apiClient.get(`/security/overdue-returns?${params.toString()}`)
   },
 
+  /**
+   * Get returned outpass logs (students who have returned)
+   */
+  getReturnedLogs: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+
+    return await apiClient.get(`/security/returned-logs?${params.toString()}`)
+  },
+
   // Legacy methods for backward compatibility
   getDashboardData: async () => {
     return await apiClient.get('/security/dashboard/stats')

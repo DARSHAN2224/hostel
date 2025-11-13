@@ -166,9 +166,9 @@ const outpassController = {
   // Warden: Get all outpass requests
   async getWardenOutpasses(req, res) {
     try {
-      // Allow warden, admin, and hod to view outpasses
-      if (!['warden', 'admin', 'hod'].includes(req.user.role)) {
-        return res.status(403).json({ message: 'Access denied. Only warden, admin, or HOD can view outpasses.' });
+      // Allow warden, admin, hod and security to view outpasses
+      if (!['warden', 'admin', 'hod', 'security'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Only warden, admin, HOD, or security can view outpasses.' });
       }
       
       // Build query based on role

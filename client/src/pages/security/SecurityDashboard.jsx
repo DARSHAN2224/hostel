@@ -108,24 +108,58 @@ export default function SecurityDashboard() {
       }
       const outpassId = typeof payload === 'string' ? payload : payload?.outpassId
       if (!outpassId) return null
-      return activeOutpasses.find(o => o._id === outpassId) || null
+        return activeOutpasses.find(o => o._id === outpassId) || null
     } catch {
       return null
     }
   }
 
+    const normalizeOutpassForClient = (o) => {
+      if (!o) return null
+      const out = { ...o }
+      // ensure _id is string
+      out._id = out._id && out._id.$oid ? out._id.$oid : (out._id && out._id.toString ? out._id.toString() : out._id)
+      out.departureDateTime = out.departureDateTime || out.leaveTime || out.leaveTime
+      out.returnDateTime = out.returnDateTime || out.expectedReturnTime || out.expectedReturnTime
+      out.exitTime = out.exitTime || (out.gateEntry && out.gateEntry.exitTime) || null
+      out.returnTime = out.returnTime || (out.gateEntry && out.gateEntry.returnTime) || null
+      out.student = out.student || {}
+      out.student.registerNumber = out.student.registerNumber || out.student.rollNumber || out.studentId || out.rollNumber
+      // Normalize destination: sometimes stored as object {place: '...'}
+      if (out.destination && typeof out.destination === 'object') {
+        out.destination = out.destination.place || JSON.stringify(out.destination)
+      }
+
+      return out
+    }
+
   const handleScanResult = (result) => {
     if (!result) return
     const text = Array.isArray(result) ? result[0]?.rawValue || result[0]?.text : result.rawValue || result.text || String(result)
-    const found = resolveOutpassFromCode(text)
-    if (found) {
-      setSelectedOutpass(found)
-      setActionType(!found.exitTime ? 'exit' : 'return')
-      setShowVerifyModal(true)
-      toast.success('QR recognized')
-    } else {
-      toast.error('QR not recognized for any active outpass')
-    }
+    (async () => {
+      let found = resolveOutpassFromCode(text)
+      if (!found) {
+        try {
+          console.debug('security.verifyOutpass - sending code:', text)
+          const resp = await securityService.verifyOutpass(text)
+          const serverOut = resp?.data || resp
+          if (serverOut) found = normalizeOutpassForClient(serverOut)
+        } catch (err) {
+          console.error('verifyOutpass error', err)
+          const msg = err?.message || err?.data?.message || 'Server error'
+          toast.error(msg)
+        }
+      }
+
+      if (found) {
+        setSelectedOutpass(found)
+        setActionType(!found.exitTime ? 'exit' : 'return')
+        setShowVerifyModal(true)
+        toast.success('QR recognized')
+      } else {
+        toast.error('QR not recognized for any active outpass')
+      }
+    })()
   }
 
   const handleVerifyAction = (outpass, type) => {
@@ -270,20 +304,60 @@ export default function SecurityDashboard() {
                   />
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={()=>{
-                      const found = resolveOutpassFromCode(manualCode)
-                      if(found){ setSelectedOutpass(found); setActionType(!found.exitTime? 'exit':'return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                      (async () => {
+                        let found = resolveOutpassFromCode(manualCode)
+                        if (!found) {
+                          try {
+                            console.debug('security.verifyOutpass - sending code:', manualCode)
+                            const resp = await securityService.verifyOutpass(manualCode)
+                            const serverOut = resp?.data || resp
+                            if (serverOut) found = normalizeOutpassForClient(serverOut)
+                          } catch (err) {
+                            console.error('verifyOutpass error', err)
+                            const msg = err?.message || err?.data?.message || 'Server error'
+                            toast.error(msg)
+                          }
+                        }
+
+                        if(found){ setSelectedOutpass(found); setActionType(!found.exitTime? 'exit':'return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                      })()
                     }} className="flex-1">
                       Verify Code
                     </Button>
                     <Button variant="success" icon={ArrowRightEndOnRectangleIcon} onClick={()=>{
-                      const found = resolveOutpassFromCode(manualCode)
-                      if(found){ setSelectedOutpass(found); setActionType('exit'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                      (async () => {
+                        let found = resolveOutpassFromCode(manualCode)
+                        if (!found) {
+                          try {
+                            console.debug('security.verifyOutpass - sending code:', manualCode)
+                            const resp = await securityService.verifyOutpass(manualCode)
+                            const serverOut = resp?.data || resp
+                            if (serverOut) found = normalizeOutpassForClient(serverOut)
+                          } catch (err) {
+                            console.error('verifyOutpass error', err)
+                            const msg = err?.message || err?.data?.message || 'Server error'
+                            toast.error(msg)
+                          }
+                        }
+
+                        if(found){ setSelectedOutpass(found); setActionType('exit'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                      })()
                     }} className="flex-1">
                       Record Exit
                     </Button>
                     <Button variant="primary" icon={ArrowLeftStartOnRectangleIcon} onClick={()=>{
-                      const found = resolveOutpassFromCode(manualCode)
-                      if(found){ setSelectedOutpass(found); setActionType('return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                      (async () => {
+                        let found = resolveOutpassFromCode(manualCode)
+                        if (!found) {
+                          try {
+                            const resp = await securityService.verifyOutpass(manualCode)
+                            const serverOut = resp?.data || resp
+                            if (serverOut) found = normalizeOutpassForClient(serverOut)
+                          } catch (err) {}
+                        }
+
+                        if(found){ setSelectedOutpass(found); setActionType('return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
+                      })()
                     }} className="flex-1">
                       Record Return
                     </Button>

@@ -78,7 +78,8 @@ router.post(
 router.get(
   '/students-out',
   authenticateToken,
-  authorize('security'),
+  // Allow security, admin, warden and hod to view students currently out
+  authorize('security', 'admin', 'warden', 'hod'),
   readLimiter,
   SecurityController.getStudentsOut
 )
@@ -91,7 +92,8 @@ router.get(
 router.get(
   '/recent-activity',
   authenticateToken,
-  authorize('security'),
+  // Allow security and administrative/staff roles to view recent gate activity
+  authorize('security', 'admin', 'warden', 'hod'),
   readLimiter,
   SecurityController.getRecentActivity
 )
@@ -104,9 +106,32 @@ router.get(
 router.get(
   '/overdue-returns',
   authenticateToken,
-  authorize('security'),
+  // Allow security and admin roles to view overdue returns
+  authorize('security', 'admin', 'warden', 'hod'),
   readLimiter,
   SecurityController.getOverdueReturns
+)
+
+/**
+ * @route   GET /api/v1/security/returned-logs
+ * @desc    Get outpass logs for students who have returned
+ * @access  Private (security, admin, warden, hod)
+ */
+router.get(
+  '/returned-logs',
+  authenticateToken,
+  authorize('security', 'admin', 'warden', 'hod'),
+  readLimiter,
+  SecurityController.getReturnedLogs
+)
+
+// Debug: fetch raw outpass by id or requestId (development only)
+router.get(
+  '/debug/outpass/:id',
+  authenticateToken,
+  authorize('security', 'admin'),
+  readLimiter,
+  SecurityController.debugGetOutpass
 )
 
 export default router

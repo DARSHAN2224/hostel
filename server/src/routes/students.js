@@ -83,23 +83,23 @@ router.get('/can-request-outpass', authenticateToken, readLimiter, StudentContro
 /**
  * @route   GET /api/v1/students
  * @desc    Get all students with filters
- * @access  Private (Admin, Warden)
+ * @access  Private (Admin, Warden, Security)
  */
-router.get('/', authenticateToken, authorize('admin', 'warden'), readLimiter, StudentController.getAllStudents)
+router.get('/', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, StudentController.getAllStudents)
 
 /**
  * @route   GET /api/v1/students/search
  * @desc    Search students
- * @access  Private (Admin, Warden)
+ * @access  Private (Admin, Warden, Security)
  */
-router.get('/search', authenticateToken, authorize('admin', 'warden'), readLimiter, validate(searchStudentsSchema, 'query'), StudentController.searchStudents)
+router.get('/search', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, validate(searchStudentsSchema, 'query'), StudentController.searchStudents)
 
 /**
  * @route   GET /api/v1/students/statistics
  * @desc    Get student statistics
- * @access  Private (Admin, Warden)
+ * @access  Private (Admin, Warden, Security)
  */
-router.get('/statistics', authenticateToken, authorize('admin', 'warden'), readLimiter, StudentController.getStatistics)
+router.get('/statistics', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, StudentController.getStatistics)
 
 /**
  * @route   GET /api/v1/students/by-student-id/:studentId
@@ -111,9 +111,9 @@ router.get('/by-student-id/:studentId', authenticateToken, authorize('admin', 'w
 /**
  * @route   GET /api/v1/students/:id
  * @desc    Get student by ID
- * @access  Private (Admin, Warden)
+ * @access  Private (Admin, Warden, Security)
  */
-router.get('/:id', authenticateToken, authorize('admin', 'warden'), readLimiter, validate(studentIdSchema, 'params'), StudentController.getStudentById)
+router.get('/:id', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, validate(studentIdSchema, 'params'), StudentController.getStudentById)
 
 /**
  * @route   POST /api/v1/students/:id/suspend
