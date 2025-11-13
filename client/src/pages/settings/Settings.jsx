@@ -53,7 +53,10 @@ export default function Settings({ initialTab = 'profile' }) {
     lastName: user?.lastName || '',
     email: user?.email || '',
     phone: user?.phone || '',
-    address: user?.address || ''
+    address: user?.address || '',
+    // prefill date in yyyy-mm-dd if available
+    dateOfBirth: user?.dateOfBirth ? (new Date(user.dateOfBirth)).toISOString().slice(0,10) : '',
+    gender: user?.gender || ''
   })
 
   // Password form
@@ -88,6 +91,8 @@ export default function Settings({ initialTab = 'profile' }) {
         firstName: profileData.firstName,
         lastName: profileData.lastName,
         phone: profileData.phone,
+        dateOfBirth: profileData.dateOfBirth || undefined,
+        gender: profileData.gender || undefined,
       })
       toast.success('Profile updated', { id: loading })
     } catch (err) {
@@ -393,6 +398,29 @@ export default function Settings({ initialTab = 'profile' }) {
                       icon={HomeIcon}
                       glassmorphic
                     />
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <Input
+                                        label="Date of Birth"
+                                        name="dateOfBirth"
+                                        type="date"
+                                        value={profileData.dateOfBirth}
+                                        onChange={handleProfileChange}
+                                        glassmorphic
+                                      />
+                                      <Select
+                                        label="Gender"
+                                        name="gender"
+                                        value={profileData.gender}
+                                        onChange={(e) => setProfileData(prev => ({ ...prev, gender: e.target.value }))}
+                                        glassmorphic
+                                      >
+                                        <option value="">Select Gender</option>
+                                        <option value="male">Male</option>
+                                        <option value="female">Female</option>
+                                        <option value="other">Other</option>
+                                      </Select>
+                                    </div>
 
                     <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
                       <CheckCircleIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />

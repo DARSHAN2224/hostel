@@ -64,8 +64,10 @@ export default function StudentManagement() {
       hostelType: '',
       hostelBlock: '',
       roomNumber: '',
+      dateOfBirth: '',
+      gender: '',
       permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' },
-      emergencyContact: { name: '', phone: '', relationship: '' },
+      // emergencyContact removed from admin add flow
       parentDetails: {
         fatherName: '',
         motherName: '',
@@ -191,9 +193,10 @@ export default function StudentManagement() {
       hostelType: student.hostelType || '',
       hostelBlock: student.hostelBlock || '',
       roomNumber: student.roomNumber || '',
+      dateOfBirth: student.dateOfBirth || '',
+      gender: student.gender || '',
       parentDetails: student.parentDetails || { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' },
       permanentAddress: student.permanentAddress || { street: '', city: '', state: '', zipCode: '', country: 'India' },
-      emergencyContact: student.emergencyContact || { name: '', phone: '', relationship: '' },
       status: student.status || 'active'
     })
     setShowEditModal(true)
@@ -712,16 +715,18 @@ export default function StudentManagement() {
             <Input label="Zip Code" value={addData.student.permanentAddress.zipCode} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, zipCode: e.target.value}}}))} />
           </div>
 
-          {/* Emergency Contact */}
-          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
+          {/* Date of Birth and Gender */}
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Name" value={addData.student.emergencyContact.name} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, emergencyContact: {...prev.student.emergencyContact, name: e.target.value}}}))} />
-            <Input label="Phone" value={addData.student.emergencyContact.phone} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, emergencyContact: {...prev.student.emergencyContact, phone: e.target.value}}}))} />
+            <Input label="Date of Birth" type="date" value={addData.student.dateOfBirth} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, dateOfBirth: e.target.value}}))} />
+            <Select label="Gender" value={addData.student.gender} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, gender: e.target.value}}))}>
+              <option value="">Select Gender</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </Select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Relationship" value={addData.student.emergencyContact.relationship} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, emergencyContact: {...prev.student.emergencyContact, relationship: e.target.value}}}))} />
-            <div />
-          </div>
+
+          {/* Emergency Contact removed from admin add form */}
           {/* Parent / Guardian Details */}
           <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian Details</div>
           <div className="grid grid-cols-2 gap-4">
@@ -770,9 +775,10 @@ export default function StudentManagement() {
                     hostelType: addData.student.hostelType,
                     hostelBlock: addData.student.hostelBlock,
                     roomNumber: addData.student.roomNumber,
-                    parentDetails: addData.student.parentDetails,
-                    permanentAddress: addData.student.permanentAddress,
-                    emergencyContact: addData.student.emergencyContact
+                    dateOfBirth: addData.student.dateOfBirth,
+                    gender: addData.student.gender,
+                      parentDetails: addData.student.parentDetails,
+                      permanentAddress: addData.student.permanentAddress
                   }
                 }
                 const res = await studentService.create(payload)
@@ -799,7 +805,7 @@ export default function StudentManagement() {
                 }
 
                 setShowAddModal(false)
-                setAddData({ firstName: '', lastName: '', email: '', phone: '', student: { rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '', department: '', hostelType: '', hostelBlock: '', roomNumber: '', permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' }, emergencyContact: { name: '', phone: '', relationship: '' }, parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' } } })
+                setAddData({ firstName: '', lastName: '', email: '', phone: '', student: { rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '', department: '', hostelType: '', hostelBlock: '', roomNumber: '', dateOfBirth: '', gender: '', permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' }, parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' } } })
                 fetchStudents()
               }catch(err){
                 console.error('Failed to create student:', err)
@@ -877,16 +883,18 @@ export default function StudentManagement() {
                 <Input label="Zip Code" value={editData.permanentAddress?.zipCode || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, zipCode: e.target.value}}))} />
               </div>
 
-              {/* Emergency Contact */}
-              <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
+              {/* Date of Birth and Gender in Edit form */}
               <div className="grid grid-cols-2 gap-4">
-                <Input label="Name" value={editData.emergencyContact?.name || ''} onChange={(e)=>setEditData(prev=>({...prev, emergencyContact: {...prev.emergencyContact, name: e.target.value}}))} />
-                <Input label="Phone" value={editData.emergencyContact?.phone || ''} onChange={(e)=>setEditData(prev=>({...prev, emergencyContact: {...prev.emergencyContact, phone: e.target.value}}))} />
+                <Input label="Date of Birth" type="date" value={editData.dateOfBirth || ''} onChange={(e)=>setEditData(prev=>({...prev, dateOfBirth: e.target.value}))} />
+                <Select label="Gender" value={editData.gender || ''} onChange={(e)=>setEditData(prev=>({...prev, gender: e.target.value}))}>
+                  <option value="">Select Gender</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </Select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Relationship" value={editData.emergencyContact?.relationship || ''} onChange={(e)=>setEditData(prev=>({...prev, emergencyContact: {...prev.emergencyContact, relationship: e.target.value}}))} />
-                <div />
-              </div>
+
+              {/* Emergency Contact removed from admin edit form */}
 
               <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian</div>
               <div className="grid grid-cols-2 gap-4">

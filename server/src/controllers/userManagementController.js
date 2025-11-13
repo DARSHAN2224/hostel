@@ -109,14 +109,50 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     let hodId = hod ? hod._id : undefined;
 
     // Find a warden responsible for this hostel block and type.
-    // Prefer a warden assigned to the specific block (primary if available), otherwise any active warden for the block.
+    // Prefer a warden assigned to the specific block (primary if available), otherwise try broader matches.
     let warden = null;
     if (hostelBlock) {
-      // Try to find a primary warden for this block first
-      warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': hostelBlock, status: 'active', 'assignedHostelBlocks.isPrimary': true });
+      const blockRaw = String(hostelBlock || '').trim()
+      const blockUpper = blockRaw.toUpperCase()
+      const blockRegex = new RegExp(`^\\s*${blockRaw}\\s*$`, 'i')
+
+      // 1) Primary warden exact match (element-level match using $elemMatch)
+      warden = await Warden.findOne({ hostelType, assignedHostelBlocks: { $elemMatch: { blockName: blockRaw, isPrimary: true } }, $or: [{ status: 'active' }, { status: { $exists: false } }] })
+
+      // 2) Any active warden exact match
       if (!warden) {
-        // Fallback: any warden assigned to the block
-        warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': hostelBlock, status: 'active' });
+        warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': blockRaw, $or: [{ status: 'active' }, { status: { $exists: false } }] })
+      }
+
+      // 3) Case-insensitive/trimmed match for blockName using regex
+      if (!warden) {
+        warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': blockRegex, $or: [{ status: 'active' }, { status: { $exists: false } }] })
+      }
+
+      // 4) Uppercase stored form
+      if (!warden) {
+        warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': blockUpper, $or: [{ status: 'active' }, { status: { $exists: false } }] })
+      }
+
+      // 5) Fallback: ignore hostelType restriction and try to find any active warden assigned to the block
+      if (!warden) {
+        warden = await Warden.findOne({ 'assignedHostelBlocks.blockName': blockRegex, $or: [{ status: 'active' }, { status: { $exists: false } }] })
+        if (warden) console.warn(`Found warden for block ${blockRaw} without matching hostelType; using as fallback`)
+      }
+
+      // 6) Final fallback: check alternative field names used by older records
+      if (!warden) {
+        warden = await Warden.findOne({ $or: [ { 'assignedHostelBlocks.blockName': blockRegex }, { 'assignedHostelBlocks.hostelBlock': blockRegex }, { hostelBlock: blockRegex } ], $or: [{ status: 'active' }, { status: { $exists: false } }] })
+      }
+
+      // Debug: if still not found, log counts for investigative purposes (non-sensitive)
+      if (!warden) {
+        const counts = {
+          exactWithType: await Warden.countDocuments({ hostelType, 'assignedHostelBlocks.blockName': blockRaw, $or: [{ status: 'active' }, { status: { $exists: false } }] }),
+          regexWithType: await Warden.countDocuments({ hostelType, 'assignedHostelBlocks.blockName': blockRegex, $or: [{ status: 'active' }, { status: { $exists: false } }] }),
+          anyBlock: await Warden.countDocuments({ 'assignedHostelBlocks.blockName': blockRegex, $or: [{ status: 'active' }, { status: { $exists: false } }] }),
+        }
+        console.warn('Warden lookup failed for block:', blockRaw, 'counts:', counts)
       }
     }
 
@@ -706,7 +742,7 @@ export const updateUser = asyncHandler(async (req, res, next) => {
 
   if (role === 'student') {
     // Student-specific fields (flattened on Student model)
-    ['rollNumber', 'registerNumber', 'course', 'year', 'yearOfStudy', 'semester', 'department', 'hostelType', 'hostelBlock', 'roomNumber', 'permanentAddress', 'parentDetails', 'emergencyContact', 'wardenId', 'hodId'].forEach(setIfPresent)
+    ['rollNumber', 'registerNumber', 'course', 'year', 'yearOfStudy', 'semester', 'department', 'hostelType', 'hostelBlock', 'roomNumber', 'permanentAddress', 'parentDetails', 'emergencyContact', 'wardenId', 'hodId', 'dateOfBirth', 'gender'].forEach(setIfPresent)
     // parentDetails may be an object; allow full replacement
     if (req.body.parentDetails) updates.parentDetails = req.body.parentDetails
   }

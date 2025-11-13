@@ -493,12 +493,12 @@ export const managedCreateSchema = Joi.object({
       guardianEmail: Joi.string().email().optional(),
     }).optional(),
     permanentAddress: Joi.object({
-      city: Joi.string().optional(),
-      state: Joi.string().optional(),
-      zipCode: Joi.string().optional(),
-      street: Joi.string().optional(),
+      street: Joi.string().min(1).required().messages({ 'any.required': 'Street is required' }),
+      city: Joi.string().min(1).required().messages({ 'any.required': 'City is required' }),
+      state: Joi.string().min(1).required().messages({ 'any.required': 'State is required' }),
+      zipCode: Joi.string().min(3).required().messages({ 'any.required': 'ZIP Code is required' }),
       country: Joi.string().optional(),
-    }).optional(),
+    }).required(),
   }).when('role', { is: 'student', then: Joi.required(), otherwise: Joi.forbidden() }),
 })
 

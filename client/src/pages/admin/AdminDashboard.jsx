@@ -656,6 +656,61 @@ export default function AdminDashboard() {
                     onChange={(e)=>setSelectedUser(prev=>({...(prev||{}), student: {...(prev?.student||{}), parentDetails: {...(prev?.student?.parentDetails||{}), guardianEmail: e.target.value}}}))}
                   />
                 </div>
+                {/* Permanent Address required by server */}
+                <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Permanent Address</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Street"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.permanentAddress?.street || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), permanentAddress: { ...(prev?.student?.permanentAddress || {}), street: e.target.value } } }))}
+                  />
+                  <Input
+                    label="City"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.permanentAddress?.city || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), permanentAddress: { ...(prev?.student?.permanentAddress || {}), city: e.target.value } } }))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="State"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.permanentAddress?.state || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), permanentAddress: { ...(prev?.student?.permanentAddress || {}), state: e.target.value } } }))}
+                  />
+                  <Input
+                    label="Zip Code"
+                    glassmorphic
+                    required
+                    value={selectedUser?.student?.permanentAddress?.zipCode || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), permanentAddress: { ...(prev?.student?.permanentAddress || {}), zipCode: e.target.value } } }))}
+                  />
+                </div>
+                {/* Date of Birth and Gender */}
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Date of Birth"
+                    type="date"
+                    glassmorphic
+                    value={selectedUser?.student?.dateOfBirth || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), dateOfBirth: e.target.value } }))}
+                  />
+                  <Select
+                    label="Gender"
+                    glassmorphic
+                    value={selectedUser?.student?.gender || ''}
+                    onChange={(e) => setSelectedUser(prev => ({ ...(prev || {}), student: { ...(prev?.student || {}), gender: e.target.value } }))}
+                  >
+                    <option value="">Select Gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </Select>
+                </div>
               </Motion.div>
             )}
 
@@ -744,6 +799,13 @@ export default function AdminDashboard() {
                           return
                         }
 
+                        // Permanent address required by server
+                        const pa = s?.permanentAddress || {}
+                        if (!pa?.street || !pa?.city || !pa?.state || !pa?.zipCode) {
+                          toast.error('Fill permanent address details')
+                          return
+                        }
+
                         // Validate optional parent contact fields (if provided)
                         const guardianPhone = s?.parentDetails?.guardianPhone?.trim()
                         const guardianEmail = s?.parentDetails?.guardianEmail?.trim()
@@ -768,6 +830,21 @@ export default function AdminDashboard() {
                         }
 
                         handleCreateUser(payload)
+                        return
+                      }
+
+                      // If creating a warden from the admin modal, some fields are nested under
+                      // `selectedUser.warden` in the UI. The server expects either `block` + `hostelType`
+                      // or an `assignedHostelBlocks` array at the top level for managed creation.
+                      if (selectedUser.role === USER_ROLES.WARDEN) {
+                        const w = selectedUser.warden || {}
+                        const createPayload = {
+                          ...selectedUser,
+                          // Flatten nested warden fields to top-level expected by server
+                          hostelType: w.hostelType || selectedUser.hostelType,
+                          block: w.hostelBlock || selectedUser.hostelBlock,
+                        }
+                        handleCreateUser(createPayload)
                         return
                       }
 

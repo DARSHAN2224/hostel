@@ -98,7 +98,10 @@ export const wardenService = {
       // Emergency contact can be updated as a nested object
       if (updates.emergencyContact) payload.emergencyContact = updates.emergencyContact
       // assignedHostelBlocks may be provided directly from admin UI
+      // If a simple `hostelBlock` string was provided (common in the edit form),
+      // translate it into the expected `assignedHostelBlocks` array shape for the API.
       if (updates.assignedHostelBlocks) payload.assignedHostelBlocks = updates.assignedHostelBlocks
+      else if (updates.hostelBlock) payload.assignedHostelBlocks = [{ blockName: updates.hostelBlock, isPrimary: true }]
       
       const response = await apiClient.patch(`${API_ENDPOINTS.USERS}/warden/${id}`, payload)
       return response.data

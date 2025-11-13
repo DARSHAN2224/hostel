@@ -110,10 +110,26 @@ const studentSchema = new mongoose.Schema({
   
   // Address Information (optional for initial creation)
   permanentAddress: {
-    street: String,
-    city: String,
-    state: String,
-    zipCode: String,
+    street: {
+      type: String,
+      required: [true, 'Street is required'],
+      trim: true
+    },
+    city: {
+      type: String,
+      required: [true, 'City is required'],
+      trim: true
+    },
+    state: {
+      type: String,
+      required: [true, 'State is required'],
+      trim: true
+    },
+    zipCode: {
+      type: String,
+      required: [true, 'ZIP Code is required'],
+      trim: true
+    },
     country: {
       type: String,
       default: 'India'
@@ -305,25 +321,44 @@ studentSchema.pre('save', async function(next) {
 
 // Pre-save middleware to update profile completion
 studentSchema.pre('save', function(next) {
-  // Check if required fields for profile completion are filled
-  const requiredFields = [
-    'firstName', 'lastName', 'email', 'phone', 'studentId', 'rollNumber',
-    'course', 'year', 'yearOfStudy', 'semester', 'department', 'dateOfBirth', 'gender',
-    'hostelType', 'hostelBlock', 'roomNumber'
+  // Compute profile completion as a percentage of important fields.
+  // Consider a set of profile fields + a parent block; mark `profileCompleted`
+  // true when at least 70% of these are filled. This is more tolerant than
+  // requiring every single field (helps admin-created users).
+  const profileFields = [
+    'firstName','lastName','email','phone','studentId','rollNumber',
+    'course','year','yearOfStudy','semester','department',
+    'hostelType','hostelBlock','roomNumber',
+    'permanentAddress.street','permanentAddress.city','permanentAddress.state','permanentAddress.zipCode',
+    'dateOfBirth','gender'
   ]
-  
-  const parentFields = [
-    'parentDetails.fatherName', 'parentDetails.motherName', 'parentDetails.guardianPhone'
+
+  const parentBlockFields = [
+    'parentDetails.fatherName','parentDetails.motherName','parentDetails.guardianPhone','parentDetails.guardianEmail'
   ]
-  
-  const isRequiredComplete = requiredFields.every(field => this[field])
-  const isParentComplete = parentFields.every(field => {
+
+  let filled = 0
+  profileFields.forEach(field => {
     const keys = field.split('.')
-    return keys.reduce((obj, key) => obj && obj[key], this)
+    const val = keys.reduce((obj, key) => obj && obj[key], this)
+    if (val !== undefined && val !== null && String(val).trim() !== '') filled++
   })
-  
-  this.profileCompleted = isRequiredComplete && isParentComplete
-  
+
+  // Count parent block as one unit if any meaningful parent detail exists
+  let parentBlockFilled = 0
+  const anyParent = parentBlockFields.some(field => {
+    const keys = field.split('.')
+    const val = keys.reduce((obj, key) => obj && obj[key], this)
+    return val !== undefined && val !== null && String(val).trim() !== ''
+  })
+  if (anyParent) parentBlockFilled = 1
+
+  const totalConsidered = profileFields.length + 1 // +1 for parent block
+  const totalFilled = filled + parentBlockFilled
+  const completionRatio = totalFilled / totalConsidered
+
+  this.profileCompleted = completionRatio >= 0.7
+
   next()
 })
 
