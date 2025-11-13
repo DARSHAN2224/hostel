@@ -14,6 +14,10 @@ const connectionOptions = {
   serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 45000,
   bufferCommands: false,
+  // Disable retryable writes when running against a standalone MongoDB instance
+  // Retryable writes (and transaction numbers) require a replica set or mongos.
+  // See: https://www.mongodb.com/docs/manual/core/retryable-writes/
+  retryWrites: false,
 }
 
 /**

@@ -130,7 +130,7 @@ const hodController = {
   getHodProfile: asyncHandler(async (req, res, next) => {
     if (req.user.role !== 'hod') return next(new AppError('Access denied', 403))
 
-    const hod = await Hod.findById(req.user.id).select('-password')
+  const hod = await Hod.findById(req.user.id).select('-password').populate('assignedStudentsCount')
     if (!hod) return next(new AppError('HOD not found', 404))
 
     return res.json(new ApiResponse(200, { hod }, 'HOD profile retrieved'))
@@ -140,7 +140,7 @@ const hodController = {
   getAllHods: asyncHandler(async (req, res, next) => {
     if (req.user.role !== 'admin') return next(new AppError('Forbidden', 403))
 
-    let hods = await Hod.find().select('-password')
+  let hods = await Hod.find().select('-password').populate('assignedStudentsCount')
     if (req.user?.role === 'admin' && Array.isArray(hods) && hods.length > 0) {
       try {
         const ids = hods.map(h => h._id)

@@ -191,6 +191,11 @@ const studentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Hod'
   },
+  // Reference to assigned Warden (auto-assigned on student creation)
+  wardenId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Warden'
+  },
   
   // Account Security
   isEmailVerified: {

@@ -47,6 +47,9 @@ export default function Sidebar({ onLogout, mobile }) {
     ? [...baseNavigation.slice(0, 2), ...adminOnlyNavigation, ...baseNavigation.slice(2)]
     : baseNavigation
 
+  // Hide certain admin/management links for students to avoid navigation to admin pages
+  const studentHiddenPaths = [ROUTES.STUDENTS, ROUTES.OUTPASS_REQUESTS, ROUTES.OUTPASS_HISTORY, ROUTES.REPORTS]
+
   const sidebarVariants = {
     hidden: { x: -300, opacity: 0 },
     visible: {
@@ -98,6 +101,8 @@ export default function Sidebar({ onLogout, mobile }) {
         {/* Navigation */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto hide-scrollbar">
           {navigation.map((item) => {
+            // If current user is a student and this path should be hidden for students, skip rendering
+            if (user?.role === 'student' && studentHiddenPaths.includes(item.href)) return null
             const isActive = location.pathname === item.href
             const Icon = item.icon
             

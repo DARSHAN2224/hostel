@@ -1,4 +1,4 @@
-import { Student, Warden, Admin, Security, Parent, Credential } from '../models/index.js'
+import { Student, Warden, Admin, Security, Parent, Credential, AuditLog } from '../models/index.js'
 import Hod from '../models/Hod.js'
 import mongoose from 'mongoose'
 import { asyncHandler } from '../utils/asyncHandler.js'
@@ -13,6 +13,7 @@ import { deleteOldProfilePicture } from '../middleware/upload.js'
 const ModelMap = {
   student: Student,
   warden: Warden,
+  hod: Hod,
   admin: Admin,
   security: Security,
   parent: Parent,
@@ -102,10 +103,30 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
       parentDetails: pd
     } = student;
     parentDetails = pd;
-
     // Find HOD for department
     let hod = await Hod.findOne({ department });
     let hodId = hod ? hod._id : undefined;
+
+    // Find a warden responsible for this hostel block and type.
+    // Prefer a warden assigned to the specific block (primary if available), otherwise any active warden for the block.
+    let warden = null;
+    if (hostelBlock) {
+      // Try to find a primary warden for this block first
+      warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': hostelBlock, status: 'active', 'assignedHostelBlocks.isPrimary': true });
+      if (!warden) {
+        // Fallback: any warden assigned to the block
+        warden = await Warden.findOne({ hostelType, 'assignedHostelBlocks.blockName': hostelBlock, status: 'active' });
+      }
+    }
+
+    // If either HOD or Warden is missing, refuse to create the student and instruct to contact admin
+    if (!hodId) {
+      return next(new AppError(`No HOD assigned for department '${department}'. Please contact the administrator to assign an HOD before creating students in this department.`, 400));
+    }
+
+    if (!warden) {
+      return next(new AppError(`No warden assigned for hostel block '${hostelBlock}'. Please contact the administrator to assign a warden before creating students in this block.`, 400));
+    }
 
     userData = {
       ...userData,
@@ -122,6 +143,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
       hostelBlock,
       roomNumber,
       hodId,
+      wardenId: warden._id,
     };
 
     // Add optional fields only if provided
@@ -347,6 +369,10 @@ const toUserDTO = (u, roleOverride) => ({
   hostelType: u.hostelType, // For wardens and students
   hostelBlock: u.hostelBlock, // For students
   assignedHostelBlocks: u.assignedHostelBlocks, // For wardens
+  // assignedStudents: prefer virtual populated count; fallback to occupancy if present
+  assignedStudents: typeof u.assignedStudentsCount === 'number'
+    ? u.assignedStudentsCount
+    : (Array.isArray(u.assignedHostelBlocks) && u.assignedHostelBlocks.length > 0 ? (u.assignedHostelBlocks[0].currentOccupancy || 0) : undefined),
   createdAt: u.createdAt,
 })
 
@@ -391,8 +417,10 @@ export const listUsers = asyncHandler(async (req, res) => {
     if (r === 'warden') {
       console.log('Warden fetch query:', JSON.stringify(query))
     }
+    // For wardens/hods populate the virtual assignedStudentsCount so we can show counts
+    const findQuery = (r === 'warden' || r === 'hod') ? Model.find(query).populate('assignedStudentsCount') : Model.find(query)
     const [items, total] = await Promise.all([
-      Model.find(query).sort({ createdAt: -1 }).skip(skip).limit(take),
+      findQuery.sort({ createdAt: -1 }).skip(skip).limit(take),
       Model.countDocuments(query),
     ])
     if (r === 'warden') {
@@ -421,7 +449,9 @@ export const listUsers = asyncHandler(async (req, res) => {
   if (req.user?.role === 'admin' && Array.isArray(data) && data.length > 0) {
     try {
       const ids = data.map(d => d._id)
-      const creds = await Credential.find({ userId: { $in: ids } })
+      // Explicitly select the stored generated password for admin-only attachment.
+      // This is intentional but sensitive; keep this admin-only and audit access.
+      const creds = await Credential.find({ userId: { $in: ids } }).select('+password')
       const credMap = {}
       creds.forEach(c => { credMap[String(c.userId)] = c.password })
       data = data.map(d => ({ ...d, generatedPassword: credMap[d._id] || undefined }))
@@ -439,13 +469,113 @@ export const getCredential = asyncHandler(async (req, res, next) => {
   const { role, id } = req.params
   if (!role || !id) return next(new AppError('role and id are required', 400))
 
-  const cred = await Credential.findOne({ userId: id, role })
+  // Only admins can retrieve stored generated credentials. Explicitly select the password field.
+  const cred = await Credential.findOne({ userId: id, role }).select('+password')
   if (!cred) return next(new AppError('Credential not found', 404))
 
-  // Audit note: in production, consider logging access to credentials in an audit store
-  console.info(`Admin ${req.user?.id} retrieved credential for user ${id} (role: ${role})`)
+  // Create an audit log entry for credential retrieval
+  try {
+    await AuditLog.logAction({
+      user: req.user?.id,
+      userModel: req.user?.role ? (req.user.role.charAt(0).toUpperCase() + req.user.role.slice(1)) : 'Admin',
+      action: 'view',
+      resource: 'password',
+      resourceId: id,
+      details: { roleRequested: role },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+      userAgent: req.headers['user-agent'] || undefined,
+      status: 'success'
+    })
+  } catch (auditErr) {
+    // do not block the main flow if audit logging fails
+    console.warn('Failed to write audit log for credential retrieval:', auditErr)
+  }
 
   res.json(new ApiResponse(200, { password: cred.password }, 'Credential retrieved'))
+})
+
+// GET /users/:role/:id - fetch a single user by role and id, include assignedStudentsCount for wardens/hods when possible
+export const getUserById = asyncHandler(async (req, res, next) => {
+  const { role, id } = req.params
+  const Model = ModelMap[role]
+  if (!Model) return next(new AppError('Invalid role', 400))
+
+  let query = Model.findById(id)
+  // Populate counts for warden/hod
+  if (role === 'warden' || role === 'hod') {
+    query = query.populate('assignedStudentsCount')
+  }
+
+  const user = await query.exec()
+  if (!user) return next(new AppError('User not found', 404))
+
+  // Return full sanitized object for admins/wardens/hods; otherwise limited DTO
+  if (req.user?.role === 'admin') {
+    return res.json(new ApiResponse(200, { user: typeof user.toJSON === 'function' ? user.toJSON() : user }, 'User retrieved'))
+  }
+
+  // Fallback DTO
+  return res.json(new ApiResponse(200, { user: toUserDTO(user, role) }, 'User retrieved'))
+})
+
+// POST /users/:role/:id/reset-password - admin-only: generate reset token and notify user (do not return plaintext)
+export const resetPassword = asyncHandler(async (req, res, next) => {
+  if (req.user?.role !== 'admin') return next(new AppError('Forbidden', 403))
+  const { role, id } = req.params
+  if (!role || !id) return next(new AppError('role and id are required', 400))
+
+  const Model = ModelMap[role]
+  if (!Model) return next(new AppError('Invalid role', 400))
+
+  const user = await Model.findById(id)
+  if (!user) return next(new AppError('User not found', 404))
+
+  // Create a password reset token using the model instance method if available
+  if (typeof user.createPasswordResetToken !== 'function') {
+    return next(new AppError('Password reset not supported for this user type', 400))
+  }
+
+  const resetToken = user.createPasswordResetToken()
+  await user.save({ validateBeforeSave: false })
+
+  // Build a frontend link for reset (do not return token in API response)
+  const clientUrl = config.app?.clientUrl || 'http://localhost:5173'
+  const resetLink = `${clientUrl}/auth/reset-password?token=${resetToken}&id=${user._id}`
+
+  // Notify user via email (best-effort)
+  try {
+    const subject = 'Password reset request'
+    const text = `An administrator has requested a password reset for your account. Use the following link to reset your password: ${resetLink}. The link expires shortly.`
+    await sendNotificationEmail(user.email, subject, text)
+  } catch (emailErr) {
+    console.warn('Failed to send reset notification email:', emailErr)
+  }
+
+  // Invalidate any previously stored generated credentials for this user so the old
+  // plaintext (if persisted) is not shown in admin UIs after a reset has been requested.
+  try {
+    await Credential.deleteMany({ userId: id })
+    // Log the invalidation in audit logs
+    try {
+      await AuditLog.logAction({
+        user: req.user?.id,
+        userModel: req.user?.role ? (req.user.role.charAt(0).toUpperCase() + req.user.role.slice(1)) : 'Admin',
+        action: 'update',
+        resource: 'password',
+        resourceId: id,
+        details: { reason: 'admin_requested_reset_and_invalidated_stored_credential' },
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+        userAgent: req.headers['user-agent'] || undefined,
+        status: 'success'
+      })
+    } catch (auditErr) {
+      console.warn('Failed to write audit log for credential invalidation:', auditErr)
+    }
+  } catch (delErr) {
+    console.warn('Failed to delete stored credentials during reset flow:', delErr)
+  }
+
+  res.json(new ApiResponse(200, null, 'Password reset requested and user notified'))
 })
 
 // GET /users/stats - counts per role and totals
@@ -472,12 +602,37 @@ export const updateUser = asyncHandler(async (req, res, next) => {
   const { role, id } = req.params
   const Model = ModelMap[role]
   if (!Model) return next(new AppError('Invalid role', 400))
-
-  const allowed = ['firstName', 'lastName', 'phone', 'status']
+  // Allow role-specific updatable fields so admin edit forms can match registration
   const updates = {}
-  allowed.forEach((k) => {
-    if (req.body[k] !== undefined) updates[k] = req.body[k]
-  })
+
+  const setIfPresent = (key) => { if (req.body[key] !== undefined) updates[key] = req.body[key] }
+
+  // Common fields across roles
+  ['firstName', 'lastName', 'name', 'email', 'phone', 'status', 'profileCompleted', 'mustChangePassword'].forEach(setIfPresent)
+
+  if (role === 'student') {
+    // Student-specific fields (flattened on Student model)
+    ['rollNumber', 'registerNumber', 'course', 'year', 'yearOfStudy', 'semester', 'department', 'hostelType', 'hostelBlock', 'roomNumber', 'permanentAddress', 'parentDetails', 'emergencyContact', 'wardenId', 'hodId'].forEach(setIfPresent)
+    // parentDetails may be an object; allow full replacement
+    if (req.body.parentDetails) updates.parentDetails = req.body.parentDetails
+  }
+
+  if (role === 'warden') {
+    ['hostelType', 'assignedHostelBlocks', 'emergencyContact', 'workingHours', 'permissions'].forEach(setIfPresent)
+    if (req.body.assignedHostelBlocks) updates.assignedHostelBlocks = req.body.assignedHostelBlocks
+    if (req.body.emergencyContact) updates.emergencyContact = req.body.emergencyContact
+  }
+
+  if (role === 'hod') {
+    ['department', 'phone', 'name', 'firstName', 'lastName'].forEach(setIfPresent)
+  }
+
+  if (role === 'admin' || role === 'security' || role === 'parent') {
+    ['address', 'emergencyContact', 'adminRole'].forEach(setIfPresent)
+  }
+
+  // If no updatable fields were provided, return bad request
+  if (Object.keys(updates).length === 0) return next(new AppError('No valid fields provided for update', 400))
 
   const user = await Model.findByIdAndUpdate(id, updates, { new: true, runValidators: true })
   if (!user) return next(new AppError('User not found', 404))
@@ -530,4 +685,4 @@ export const uploadProfilePicture = asyncHandler(async (req, res, next) => {
   res.json(new ApiResponse(200, { profilePicture: profilePicturePath }, 'Profile picture uploaded successfully'))
 })
 
-export default { createUserManaged, getCredential }
+export default { createUserManaged, getCredential, getUserById, resetPassword }

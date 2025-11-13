@@ -1,6 +1,5 @@
 import morgan from 'morgan';
 import logger, { morganStream } from '../config/logger.js';
-import util from 'util';
 
 /**
  * Morgan middleware for HTTP request logging
@@ -84,22 +83,33 @@ export const detailedRequestLogger = (req, res, next) => {
 
   // Add response body for errors or in development
   if (res.statusCode >= 400 || (globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV === 'development')) {
-      // Truncate large responses and avoid crashing on circular structures
-      let responseDataStr;
+      // Try to create a safe, serializable representation of the response without
+      // invoking getters that may trigger DB calls or side-effects.
+      let safeData = data
+
+      // If Mongoose documents are present, convert them to plain objects first
       try {
-        responseDataStr = JSON.stringify(data);
-      } catch {
-        // Fallback: use util.inspect which can handle circular structures
-        try {
-          responseDataStr = util.inspect(data, { depth: 2, maxArrayLength: 50 });
-        } catch {
-          responseDataStr = '[unserializable response]';
+        if (Array.isArray(data)) {
+          safeData = data.map(d => (d && typeof d.toObject === 'function') ? d.toObject() : d)
+        } else if (data && typeof data.toObject === 'function') {
+          safeData = data.toObject()
         }
+      } catch {
+        // If conversion fails, fall back to a placeholder and avoid throwing
+        safeData = '[unserializable response]'
+      }
+
+      let responseDataStr = ''
+      try {
+        responseDataStr = JSON.stringify(safeData)
+      } catch {
+        // Final fallback: avoid calling util.inspect which may evaluate getters
+        responseDataStr = '[unserializable response]'
       }
 
       responseDetails.response = responseDataStr.length > 1000
         ? responseDataStr.substring(0, 1000) + '... (truncated)'
-        : responseDataStr;
+        : responseDataStr
     }
 
     // Log based on status code

@@ -45,6 +45,7 @@
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "debug": "^4.4.3",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-async-handler": "^1.2.0",
@@ -58,6 +59,7 @@
     "nodemailer": "^6.9.14",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
+    "twilio": "^5.10.5",
     "winston": "^3.18.3"
   },
   "devDependencies": {

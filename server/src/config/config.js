@@ -17,7 +17,7 @@ export const config = {
   
   // Database
   database: {
-    url: process.env.DATABASE_URL || 'mongodb://localhost:27017/hostel_management',
+    url: process.env.DATABASE_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017/hostel_management',
     name: process.env.DB_NAME || 'hostel_management',
     options: {
       // Modern Mongoose 6+ doesn't need these deprecated options
@@ -83,12 +83,24 @@ export const config = {
     enableEmailVerification: process.env.ENABLE_EMAIL_VERIFICATION === 'true',
     enablePasswordReset: process.env.ENABLE_PASSWORD_RESET !== 'false'
   }
+  ,
+  // SMS / Notifications
+  sms: {
+    provider: process.env.SMS_PROVIDER || 'mock',
+    twilio: {
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+      fromNumber: process.env.TWILIO_FROM_NUMBER
+    }
+  }
 }
 
 // Validation function
 export const validateConfig = () => {
-  const required = ['JWT_SECRET', 'DATABASE_URL']
-  const missing = required.filter(key => !process.env[key])
+  // Require JWT_SECRET and a database URL (either DATABASE_URL or MONGODB_URI)
+  const missing = []
+  if (!process.env.JWT_SECRET) missing.push('JWT_SECRET')
+  if (!process.env.DATABASE_URL && !process.env.MONGODB_URI) missing.push('DATABASE_URL or MONGODB_URI')
   
   if (missing.length > 0) {
     console.error('❌ Missing required environment variables:', missing.join(', '))

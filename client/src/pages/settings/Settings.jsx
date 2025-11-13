@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import PropTypes from 'prop-types'
+import { useNavigate } from 'react-router-dom'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { useSelector, useDispatch } from 'react-redux'
 import {
@@ -27,7 +28,8 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import { selectUser, setUser } from '../../store/authSlice'
-import { updateProfile as apiUpdateProfile, changePassword as apiChangePassword } from '../../services/authService'
+import { ROUTES } from '../../constants'
+import authService, { updateProfile as apiUpdateProfile, changePassword as apiChangePassword } from '../../services/authService'
 import toast from 'react-hot-toast'
 import { useTheme } from '../../hooks/useTheme'
 import apiClient from '../../services/api'
@@ -35,6 +37,7 @@ import apiClient from '../../services/api'
 export default function Settings({ initialTab = 'profile' }) {
   const user = useSelector(selectUser)
   const dispatch = useDispatch()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState(initialTab)
   const { theme, setTheme } = useTheme()
   const [uploading, setUploading] = useState(false)
@@ -100,7 +103,59 @@ export default function Settings({ initialTab = 'profile' }) {
     }
     try {
       const loading = toast.loading('Changing password...')
-      await apiChangePassword({ currentPassword: passwordData.currentPassword, newPassword: passwordData.newPassword })
+      // Include confirmPassword so backend validation passes
+      // The server's change-password endpoint now returns the updated user
+      const changeResp = await apiChangePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
+        confirmPassword: passwordData.confirmPassword
+      })
+
+      // Try to extract the updated user from the change-password response first
+      const returnedUser = changeResp?.data?.user || changeResp?.user || changeResp?.data || changeResp
+      if (returnedUser) {
+        dispatch(setUser(returnedUser))
+        try {
+          localStorage.setItem('userData', JSON.stringify(returnedUser))
+        } catch (storageErr) {
+          console.warn('Failed to persist userData to localStorage', storageErr)
+        }
+      } else {
+        // Fallback: refresh user data from server and persist; log responses for debugging
+        try {
+          const resp = await authService.getCurrentUser()
+          const fetchedUser = resp?.data?.user || resp?.user || resp?.data || resp
+          if (fetchedUser) {
+            dispatch(setUser(fetchedUser))
+            try {
+              localStorage.setItem('userData', JSON.stringify(fetchedUser))
+            } catch (storageErr) {
+              console.warn('Failed to persist userData to localStorage', storageErr)
+            }
+          } else {
+            const cleared = { ...user, mustChangePassword: false }
+            dispatch(setUser(cleared))
+            try {
+              localStorage.setItem('userData', JSON.stringify(cleared))
+            } catch (storageErr) {
+              console.warn('Failed to persist userData to localStorage', storageErr)
+            }
+          }
+        } catch {
+          // Fallback: clear the user flag locally if refresh fails
+          const updatedUser = { ...user, mustChangePassword: false }
+          dispatch(setUser(updatedUser))
+          try {
+            localStorage.setItem('userData', JSON.stringify(updatedUser))
+          } catch (storageErr) {
+            console.warn('Failed to persist userData to localStorage', storageErr)
+          }
+        }
+      }
+
+      // Navigate to student dashboard after successful change
+      navigate('/student/dashboard')
+
       toast.success('Password changed', { id: loading })
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
     } catch (err) {

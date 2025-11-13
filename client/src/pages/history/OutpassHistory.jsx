@@ -4,13 +4,17 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/authSlice'
 import { motion as Motion } from 'framer-motion'
 import {
   ClockIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
   ArrowDownTrayIcon,
-  EyeIcon
+  EyeIcon,
+  CheckCircleIcon,
+  XCircleIcon
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Card'
@@ -24,6 +28,8 @@ import { saveAs } from 'file-saver'
 import jsPDF from 'jspdf'
 import EmptyState from '../../components/ui/EmptyState'
 import apiClient from '../../services/api'
+import toast from 'react-hot-toast'
+import outpassService from '../../services/outpassService'
 import { formatDate, formatRelativeTime } from '../../utils/helpers'
 import { OUTPASS_STATUS } from '../../constants'
 
@@ -35,6 +41,8 @@ export default function OutpassHistory() {
   const [dateFilter, setDateFilter] = useState('all')
   const [exportFormat, setExportFormat] = useState('csv')
 
+  const user = useSelector(selectUser)
+
   const fetchHistory = useCallback(async () => {
     try {
       setLoading(true)
@@ -43,7 +51,15 @@ export default function OutpassHistory() {
         limit: 100,
         sort: '-createdAt'
       }
-      const response = await apiClient.get('/outpass/history', { params })
+      // If student, fetch their own outpasses; otherwise use admin/warden history endpoint
+      let response
+      if (user?.role === 'student') {
+        // Use student endpoint
+        const { getMyOutpasses } = await import('../../services/outpassService')
+        response = await getMyOutpasses(params)
+      } else {
+        response = await apiClient.get('/outpass/history', { params })
+      }
       
       let list = []
       if (Array.isArray(response)) {
@@ -52,16 +68,29 @@ export default function OutpassHistory() {
         list = response.data.outpasses
       } else if (response?.outpasses) {
         list = response.outpasses
+      } else if (response?.data && Array.isArray(response.data)) {
+        list = response.data
       }
-      
-      setOutpasses(list)
+
+      // Normalize server-side field names to client-friendly names
+      // Server may return leaveTime/expectedReturnTime and destination as object
+      const normalized = (Array.isArray(list) ? list : []).map(o => ({
+        ...o,
+        departureDateTime: o.leaveTime || o.departureDateTime || o.leave_time || null,
+        returnDateTime: o.expectedReturnTime || o.returnDateTime || o.return_time || null,
+        destination: typeof o.destination === 'object' ? (o.destination.place || '') : (o.destination || ''),
+        wardenName: o.warden && typeof o.warden === 'object' ? (o.warden.firstName ? `${o.warden.firstName} ${o.warden.lastName || ''}` : (o.warden.fullName || '')) : (o.warden || ''),
+        hodName: o.hod && typeof o.hod === 'object' ? (o.hod.name || `${o.hod.firstName || ''} ${o.hod.lastName || ''}`.trim()) : (o.hod || '')
+      }))
+
+      setOutpasses(normalized)
     } catch (error) {
       console.error('Failed to fetch history:', error)
       setOutpasses([])
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, user?.role])
 
   useEffect(() => {
     fetchHistory()
@@ -178,6 +207,56 @@ export default function OutpassHistory() {
     }
   }
 
+  // Action handlers for approve/reject/parent OTP
+  const handleApprove = async (id) => {
+    if (!window.confirm('Approve this outpass request?')) return
+    try {
+      const resp = await outpassService.approve(id)
+      toast.success(resp?.message || 'Outpass approved')
+      // update local state
+      setOutpasses(prev => prev.map(o => o._id === id ? ({ ...o, status: resp?.outpass?.status || 'approved' }) : o))
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to approve')
+    }
+  }
+
+  const handleReject = async (id) => {
+    const reason = window.prompt('Reason for rejection (required)')
+    if (!reason) return toast.error('Rejection reason required')
+    try {
+      const resp = await outpassService.reject(id, reason)
+      toast.success(resp?.message || 'Outpass rejected')
+      setOutpasses(prev => prev.map(o => o._id === id ? ({ ...o, status: resp?.outpass?.status || 'rejected' }) : o))
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to reject')
+    }
+  }
+
+  const handleHodApprove = async (id) => {
+    if (!window.confirm('Approve this outpass as HOD?')) return
+    try {
+      const resp = await outpassService.hodApprove(id)
+      toast.success(resp?.message || 'HOD approved')
+      setOutpasses(prev => prev.map(o => o._id === id ? ({ ...o, status: resp?.outpass?.status || 'approved_by_hod' }) : o))
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to approve')
+    }
+  }
+
+  const handleRequestParentOtp = async (outpass) => {
+    try {
+      if (outpass.parentApproval?.approved) {
+        toast.error('Parent has already approved this outpass')
+        return
+      }
+      const resp = await outpassService.requestParentOtp(outpass._id)
+      toast.success(resp?.message || 'Parent verification requested')
+      // don't change status here; leave to parent action
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to request parent OTP')
+    }
+  }
+
   return (
     <DashboardLayout>
       <Motion.div
@@ -279,6 +358,9 @@ export default function OutpassHistory() {
                         Reason
                       </th>
                       <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                        Destination
+                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                         Date Range
                       </th>
                       <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
@@ -301,11 +383,16 @@ export default function OutpassHistory() {
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                            {outpass.student?.name || 'Unknown'}
+                              {outpass.student?.firstName ? `${outpass.student.firstName} ${outpass.student.lastName || ''}` : (outpass.studentName || outpass.student?.fullName || outpass.student || 'Unknown')}
                           </div>
                           <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {outpass.student?.registerNumber || 'N/A'}
+                            {outpass.student?.rollNumber || outpass.studentId || 'N/A'}
                           </div>
+                            {/* Assigned approvers */}
+                            <div className="text-xs text-gray-400 mt-1 truncate">
+                                <span className="mr-2">Warden: <strong className="text-gray-600 dark:text-gray-200">{outpass.wardenName || (outpass.warden && outpass.warden.firstName ? `${outpass.warden.firstName} ${outpass.warden.lastName || ''}` : (typeof outpass.warden === 'string' ? outpass.warden : (outpass.warden?.email || '-')))}</strong></span>
+                                <span>HOD: <strong className="text-gray-600 dark:text-gray-200">{outpass.hodName || (outpass.hod && outpass.hod.name ? outpass.hod.name : (typeof outpass.hod === 'string' ? outpass.hod : (outpass.hod?.email || '-')))}</strong></span>
+                            </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <Badge status={outpass.status}>{outpass.status}</Badge>
@@ -313,6 +400,11 @@ export default function OutpassHistory() {
                         <td className="px-6 py-4">
                           <div className="text-sm text-gray-900 dark:text-white max-w-xs truncate">
                             {outpass.reason}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-900 dark:text-white max-w-xs truncate">
+                            {outpass.destination || '-'}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -326,7 +418,7 @@ export default function OutpassHistory() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                           {formatRelativeTime(outpass.createdAt)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap flex items-center gap-2">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -334,6 +426,68 @@ export default function OutpassHistory() {
                           >
                             View
                           </Button>
+
+                          {/* Warden/Admin actions */}
+                          {['warden','admin'].includes(user?.role) && outpass.status === 'pending' && (
+                            <>
+                              <Button
+                                variant="success"
+                                size="sm"
+                                icon={CheckCircleIcon}
+                                onClick={() => handleApprove(outpass._id)}
+                                disabled={
+                                  (outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved) ||
+                                  (outpass.hodApprovalRequested && !outpass.hodApproval?.approved)
+                                }
+                                aria-label="Approve"
+                                title="Approve"
+                              />
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                icon={XCircleIcon}
+                                onClick={() => handleReject(outpass._id)}
+                                aria-label="Reject"
+                                title="Reject"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRequestParentOtp(outpass)}
+                                disabled={
+                                  !!outpass.parentApproval?.approved ||
+                                  (!!outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved)
+                                }
+                              >
+                                Request Parent OTP
+                              </Button>
+                              {!outpass.parentApproval?.approved && outpass.parentApproval?.requestedAt && (
+                                <span className="text-xs text-gray-500 ml-2">OTP requested</span>
+                              )}
+                            </>
+                          )}
+
+                          {/* HOD actions when HOD approval requested */}
+                          {user?.role === 'hod' && outpass.hodApprovalRequested && ['pending','approved_by_warden'].includes(outpass.status) && (
+                            <>
+                              <Button
+                                variant="success"
+                                size="sm"
+                                icon={CheckCircleIcon}
+                                onClick={() => handleHodApprove(outpass._id)}
+                                aria-label="HOD Approve"
+                                title="HOD Approve"
+                              />
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                icon={XCircleIcon}
+                                onClick={() => handleReject(outpass._id)}
+                                aria-label="HOD Reject"
+                                title="HOD Reject"
+                              />
+                            </>
+                          )}
                         </td>
                       </Motion.tr>
                     ))}

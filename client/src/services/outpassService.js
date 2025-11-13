@@ -172,6 +172,19 @@ export const outpassService = {
   }
 }
 
+// Parent-related actions
+outpassService.requestParentOtp = async (requestId) => {
+  return await apiClient.post(`/outpass/parent/request-otp/${requestId}`)
+}
+
+outpassService.parentApprove = async (requestId, otp, comments = '') => {
+  return await apiClient.post(`/outpass/parent/approve/${requestId}`, { otp, comments })
+}
+
+outpassService.sendToHod = async (requestId) => {
+  return await apiClient.post(`/outpass/warden/send-to-hod/${requestId}`)
+}
+
 // Named exports for convenience
 export const {
   create: createOutpass,

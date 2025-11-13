@@ -41,11 +41,20 @@ export default function OutpassManagement() {
   const [outpasses, setOutpasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return localStorage.getItem('outpass_view') || 'list'
+    } catch {
+      return 'list'
+    }
+  })
   const [selectedOutpass, setSelectedOutpass] = useState(null)
   const [showViewModal, setShowViewModal] = useState(false)
   const [showApproveModal, setShowApproveModal] = useState(false)
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [otpValue, setOtpValue] = useState('')
+  const [showOtpModal, setShowOtpModal] = useState(false)
 
   const fetchOutpasses = useCallback(async () => {
     try {
@@ -64,7 +73,19 @@ export default function OutpassManagement() {
         outpassList = response.data
       }
       
-      setOutpasses(outpassList)
+      // Normalize server-side field names to client-friendly names
+      const normalized = (Array.isArray(outpassList) ? outpassList : []).map(o => ({
+        ...o,
+        departureDateTime: o.leaveTime || o.departureDateTime || o.leave_time || null,
+        returnDateTime: o.expectedReturnTime || o.returnDateTime || o.return_time || null,
+        destination: typeof o.destination === 'object' ? (o.destination.place || '') : (o.destination || ''),
+        studentName: o.student?.firstName ? `${o.student.firstName} ${o.student.lastName || ''}` : (o.studentName || o.student?.fullName || null),
+        // Warden / HOD display names (may be populated objects or ids)
+        wardenName: o.warden && typeof o.warden === 'object' ? (o.warden.firstName ? `${o.warden.firstName} ${o.warden.lastName || ''}` : (o.warden.fullName || '')) : (o.warden || ''),
+        hodName: o.hod && typeof o.hod === 'object' ? (o.hod.name || `${o.hod.firstName || ''} ${o.hod.lastName || ''}`.trim()) : (o.hod || '')
+      }))
+
+      setOutpasses(normalized)
     } catch (error) {
       console.error('Failed to fetch outpasses:', error)
       setOutpasses([]) // Set empty array on error
@@ -77,14 +98,59 @@ export default function OutpassManagement() {
     fetchOutpasses()
   }, [fetchOutpasses])
 
+  // Persist view mode selection
+  useEffect(() => {
+    try {
+      localStorage.setItem('outpass_view', viewMode)
+    } catch (err) { console.debug && console.debug('persist viewMode failed', err) }
+  }, [viewMode])
+
   const filteredOutpasses = Array.isArray(outpasses) ? outpasses.filter(outpass =>
-    outpass.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (outpass.studentName || `${outpass.student?.firstName || ''} ${outpass.student?.lastName || ''}` || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     outpass.reason?.toLowerCase().includes(searchTerm.toLowerCase())
   ) : []
 
-  const handleView = (outpass) => {
-    setSelectedOutpass(outpass)
-    setShowViewModal(true)
+  const handleView = async (outpass) => {
+    // Lazy-fetch approver details (assignedStudentsCount) if not already present
+    try {
+      let enriched = outpass
+      // If warden is populated object but missing assignedStudentsCount, fetch it
+      if (outpass?.warden && typeof outpass.warden === 'object' && outpass.warden._id && outpass.warden.assignedStudentsCount === undefined) {
+        try {
+          const svc = await import('../../services/userService')
+          const fn = svc.getById || svc.default.getById
+          const resp = await fn('warden', outpass.warden._id)
+          const w = resp?.data?.data?.user || resp?.data?.user || resp?.user || resp?.data
+          if (w) {
+            enriched = { ...enriched, warden: { ...outpass.warden, ...w }, wardenName: w.firstName ? `${w.firstName} ${w.lastName || ''}` : (w.fullName || outpass.wardenName) }
+          }
+        } catch (err) {
+          console.debug('Failed to lazy fetch warden details', err)
+        }
+      }
+
+      // If HOD is populated object but missing assignedStudentsCount, fetch it
+      if (enriched?.hod && typeof enriched.hod === 'object' && enriched.hod._id && enriched.hod.assignedStudentsCount === undefined) {
+        try {
+          const svc = await import('../../services/userService')
+          const fn = svc.getById || svc.default.getById
+          const resp = await fn('hod', enriched.hod._id)
+          const h = resp?.data?.data?.user || resp?.data?.user || resp?.user || resp?.data
+          if (h) {
+            enriched = { ...enriched, hod: { ...enriched.hod, ...h }, hodName: h.name || (h.firstName ? `${h.firstName} ${h.lastName || ''}` : enriched.hodName) }
+          }
+        } catch (err) {
+          console.debug('Failed to lazy fetch hod details', err)
+        }
+      }
+
+      setSelectedOutpass(enriched)
+    } catch (err) {
+      console.error('Error enriching outpass details', err)
+      setSelectedOutpass(outpass)
+    } finally {
+      setShowViewModal(true)
+    }
   }
 
   const handleApprove = (outpass) => {
@@ -95,6 +161,85 @@ export default function OutpassManagement() {
   const handleReject = (outpass) => {
     setSelectedOutpass(outpass)
     setShowRejectModal(true)
+  }
+
+  const handleRequestParentOtp = async (outpass) => {
+    try {
+      // Prevent requesting again if already approved
+      if (outpass.parentApproval?.approved) {
+        toast.error('Parent has already approved this outpass')
+        return
+      }
+      const svc = await import('../../services/outpassService')
+      const fn = svc.requestParentOtp || svc.default.requestParentOtp
+      const resp = await fn(outpass._id)
+      toast.success('Parent OTP requested')
+      // Open OTP entry modal so admin/warden can paste the OTP immediately
+      setSelectedOutpass(resp?.data?.outpass || resp?.outpass || outpass)
+      setOtpValue('')
+      setShowOtpModal(true)
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to request parent OTP')
+    }
+  }
+
+  // Resend OTP while the OTP modal is open
+  const resendOtp = async () => {
+    if (!selectedOutpass) {
+      toast.error('No outpass selected')
+      return
+    }
+
+    try {
+      const svc = await import('../../services/outpassService')
+      const fn = svc.requestParentOtp || svc.default.requestParentOtp
+      const resp = await fn(selectedOutpass._id)
+      toast.success('OTP resent')
+      setSelectedOutpass(resp?.data?.outpass || resp?.outpass || selectedOutpass)
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to resend OTP')
+    }
+  }
+
+  const handleSendToHod = async (outpass) => {
+    try {
+      const svc = await import('../../services/outpassService')
+      const fn = svc.sendToHod || svc.default.sendToHod
+      const resp = await fn(outpass._id)
+      const returnedOutpass = resp?.data?.outpass || resp?.outpass || outpass
+      setSelectedOutpass(returnedOutpass)
+      // Notify user about SMS to HOD if available
+      const hodSmsSent = resp?.data?.hodSmsSent ?? resp?.hodSmsSent
+      if (hodSmsSent === true) {
+        toast.success('Sent to HOD for approval — HOD notified via SMS')
+      } else if (hodSmsSent === false) {
+        toast('Sent to HOD for approval — HOD notification failed. Please notify HOD manually.', { icon: '⚠️' })
+      } else {
+        toast.success('Sent to HOD for approval')
+      }
+      fetchOutpasses()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to send to HOD')
+    }
+  }
+
+  const submitOtp = async () => {
+    if (!otpValue.trim()) {
+      toast.error('Please enter the OTP')
+      return
+    }
+
+    try {
+      const svc = await import('../../services/outpassService')
+      const fn = svc.parentApprove || svc.default.parentApprove
+      await fn(selectedOutpass._id, otpValue.trim(), '')
+      toast.success('Parent OTP accepted — outpass approved')
+      setShowOtpModal(false)
+      setOtpValue('')
+      fetchOutpasses()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to verify OTP')
+    }
   }
 
   const confirmApprove = async () => {
@@ -161,6 +306,10 @@ export default function OutpassManagement() {
               Review and approve student outpass requests
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            <Button variant={viewMode === 'list' ? 'success' : 'ghost'} size="sm" onClick={() => setViewMode('list')}>List</Button>
+            <Button variant={viewMode === 'cards' ? 'success' : 'ghost'} size="sm" onClick={() => setViewMode('cards')}>Cards</Button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -212,7 +361,7 @@ export default function OutpassManagement() {
           />
         </Card>
 
-        {/* Outpass Cards Grid */}
+        {/* Outpass List / Cards */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -226,6 +375,99 @@ export default function OutpassManagement() {
               title="No outpass requests"
               description="There are no outpass requests in this category"
             />
+          </Card>
+        ) : viewMode === 'list' ? (
+          <Card glassmorphic>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b-2 border-gray-200 dark:border-gray-700">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Student</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Reason</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Destination</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Date Range</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Submitted</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {filteredOutpasses.map((outpass) => (
+                    <tr key={outpass._id} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                      <td className="px-6 py-4">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">{outpass.studentName || (outpass.student?.firstName ? `${outpass.student.firstName} ${outpass.student.lastName || ''}` : 'Unknown')}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400 truncate">{outpass.student?.rollNumber || outpass.studentId || 'N/A'}</div>
+                          {/* Assigned approvers */}
+                          <div className="text-xs text-gray-400 mt-1 truncate">
+                            <span className="mr-2">Warden: <strong className="text-gray-600 dark:text-gray-200">{outpass.wardenName || (outpass.warden && outpass.warden.firstName ? `${outpass.warden.firstName} ${outpass.warden.lastName || ''}` : (typeof outpass.warden === 'string' ? outpass.warden : (outpass.warden?.email || '-')))}</strong></span>
+                            <span>HOD: <strong className="text-gray-600 dark:text-gray-200">{outpass.hodName || (outpass.hod && outpass.hod.name ? outpass.hod.name : (typeof outpass.hod === 'string' ? outpass.hod : (outpass.hod?.email || '-')))}</strong></span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4"><div className="text-sm text-gray-900 dark:text-white max-w-[18rem] truncate">{outpass.reason}</div></td>
+                      <td className="px-6 py-4"><div className="text-sm text-gray-900 dark:text-white max-w-[12rem] truncate">{outpass.destination || '-'}</div></td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="font-medium text-gray-900 dark:text-white">{formatDate(outpass.departureDateTime || outpass.leaveTime, 'MMM dd')}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(outpass.departureDateTime || outpass.leaveTime, 'HH:mm')} - {formatDate(outpass.returnDateTime || outpass.expectedReturnTime, 'HH:mm')}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{formatRelativeTime(outpass.createdAt)}</td>
+                      <td className="px-6 py-4"><Badge status={outpass.status}>{outpass.status}</Badge></td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => handleView(outpass)}>View</Button>
+                          {(outpass.status === OUTPASS_STATUS.PENDING_WARDEN_APPROVAL || outpass.status === 'pending') && (
+                            <>
+                              <Button
+                                variant="success"
+                                size="sm"
+                                icon={CheckCircleIcon}
+                                onClick={() => handleApprove(outpass)}
+                                disabled={
+                                  (outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved) ||
+                                  (outpass.hodApprovalRequested && !outpass.hodApproval?.approved)
+                                }
+                                aria-label="Approve"
+                                title="Approve"
+                              />
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                icon={XCircleIcon}
+                                onClick={() => handleReject(outpass)}
+                                disabled={outpass.hodApprovalRequested && !outpass.hodApproval?.approved}
+                                aria-label="Reject"
+                                title="Reject"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRequestParentOtp(outpass)}
+                                disabled={
+                                  !!outpass.parentApproval?.approved ||
+                                  (!!outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved)
+                                }
+                              >
+                                Request Parent OTP
+                              </Button>
+                              {!outpass.parentApproval?.approved && outpass.parentApproval?.requestedAt && (
+                                <span className="text-xs text-gray-500 ml-2">OTP requested</span>
+                              )}
+                              {!outpass.hodApprovalRequested && (
+                                <Button variant="ghost" size="sm" onClick={() => handleSendToHod(outpass)}>Send to HOD</Button>
+                              )}
+                              {outpass.hodApprovalRequested && !outpass.hodApproval?.approved && (
+                                <span className="text-xs text-gray-400 ml-2">Awaiting HOD approval</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Card>
         ) : (
           <Motion.div
@@ -253,71 +495,36 @@ export default function OutpassManagement() {
                 <Card glassmorphic hover className="h-full">
                   {/* Card Header */}
                   <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <Motion.div
+                      <div className="flex items-center gap-3 min-w-0">
+                          <Motion.div
                         className="h-12 w-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg"
                         whileHover={{ rotate: 360 }}
                         transition={{ duration: 0.6 }}
                       >
-                        <span className="text-white font-bold text-lg">
-                          {outpass.student?.name?.charAt(0) || 'S'}
-                        </span>
+                        <span className="text-white font-bold text-lg">{(outpass.studentName || (outpass.student?.firstName ? outpass.student.firstName : '') || 'S').charAt(0) || 'S'}</span>
                       </Motion.div>
-                      <div>
-                        <h3 className="font-semibold text-slate-900 dark:text-white">
-                          {outpass.student?.name || 'Unknown'}
-                        </h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          {outpass.student?.registerNumber || 'N/A'}
-                        </p>
-                      </div>
+                          <div className="min-w-0 overflow-hidden">
+                            <h3 className="font-semibold text-slate-900 dark:text-white truncate">{outpass.studentName || (outpass.student?.firstName ? `${outpass.student.firstName} ${outpass.student.lastName || ''}` : 'Unknown')}</h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{outpass.student?.rollNumber || outpass.studentId || outpass.student?.registerNumber || 'N/A'}</p>
+                          </div>
                     </div>
-                    <Badge variant={getStatusColor(outpass.status)} pulse>
-                      {outpass.status}
-                    </Badge>
+                    <Badge variant={getStatusColor(outpass.status)} pulse>{outpass.status}</Badge>
                   </div>
 
                   {/* Reason */}
-                  <div className="mb-4">
-                    <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
-                      {outpass.reason}
-                    </p>
-                  </div>
+                  <div className="mb-4"><p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">{outpass.reason}</p></div>
 
                   {/* Date & Time */}
                   <div className="space-y-2 mb-4">
-                    <div className="flex items-center gap-2 text-sm">
-                      <CalendarIcon className="h-4 w-4 text-blue-500" />
-                      <span className="text-slate-600 dark:text-slate-400">
-                        {formatDate(outpass.departureDateTime, 'MMM dd, yyyy')}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <ClockIcon className="h-4 w-4 text-purple-500" />
-                      <span className="text-slate-600 dark:text-slate-400">
-                        {formatDate(outpass.departureDateTime, 'HH:mm')} - {formatDate(outpass.returnDateTime, 'HH:mm')}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <UserIcon className="h-4 w-4 text-green-500" />
-                      <span className="text-slate-600 dark:text-slate-400">
-                        Submitted {formatRelativeTime(outpass.createdAt)}
-                      </span>
-                    </div>
+                    <div className="flex items-center gap-2 text-sm"><CalendarIcon className="h-4 w-4 text-blue-500" /><span className="text-slate-600 dark:text-slate-400">{formatDate(outpass.departureDateTime || outpass.leaveTime, 'MMM dd, yyyy')}</span></div>
+                    <div className="flex items-center gap-2 text-sm"><ClockIcon className="h-4 w-4 text-purple-500" /><span className="text-slate-600 dark:text-slate-400">{formatDate(outpass.departureDateTime || outpass.leaveTime, 'HH:mm')} - {formatDate(outpass.returnDateTime || outpass.expectedReturnTime, 'HH:mm')}</span></div>
+                    <div className="flex items-center gap-2 text-sm"><UserIcon className="h-4 w-4 text-green-500" /><span className="text-slate-600 dark:text-slate-400">Submitted {formatRelativeTime(outpass.createdAt)}</span></div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={EyeIcon}
-                      onClick={() => handleView(outpass)}
-                      className="flex-1"
-                    >
-                      View
-                    </Button>
-                    {outpass.status === OUTPASS_STATUS.PENDING_WARDEN_APPROVAL && (
+                        <div className="flex items-center gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <Button variant="ghost" size="sm" icon={EyeIcon} onClick={() => handleView(outpass)} className="flex-1">View</Button>
+                        {(outpass.status === OUTPASS_STATUS.PENDING_WARDEN_APPROVAL || outpass.status === 'pending') && (
                       <>
                         <Button
                           variant="success"
@@ -325,18 +532,41 @@ export default function OutpassManagement() {
                           icon={CheckCircleIcon}
                           onClick={() => handleApprove(outpass)}
                           className="flex-1"
-                        >
-                          Approve
-                        </Button>
+                          disabled={
+                            (outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved) ||
+                            (outpass.hodApprovalRequested && !outpass.hodApproval?.approved)
+                          }
+                          aria-label="Approve"
+                          title="Approve"
+                        />
                         <Button
                           variant="danger"
                           size="sm"
                           icon={XCircleIcon}
                           onClick={() => handleReject(outpass)}
                           className="flex-1"
+                          disabled={outpass.hodApprovalRequested && !outpass.hodApproval?.approved}
+                          aria-label="Reject"
+                          title="Reject"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRequestParentOtp(outpass)}
+                          className="flex-1"
+                          disabled={outpass.parentApproval?.requestedAt && !outpass.parentApproval?.approved}
                         >
-                          Reject
+                          Request Parent OTP
                         </Button>
+                        {!outpass.parentApproval?.approved && outpass.parentApproval?.requestedAt && (
+                          <span className="text-xs text-gray-500 ml-2">OTP requested</span>
+                        )}
+                        {!outpass.hodApprovalRequested && (
+                          <Button variant="ghost" size="sm" onClick={() => handleSendToHod(outpass)} className="flex-1">Send to HOD</Button>
+                        )}
+                        {outpass.hodApprovalRequested && !outpass.hodApproval?.approved && (
+                          <span className="text-xs text-gray-400 ml-2">Awaiting HOD approval</span>
+                        )}
                       </>
                     )}
                   </div>
@@ -388,10 +618,24 @@ export default function OutpassManagement() {
                   {formatDate(selectedOutpass.returnDateTime, 'MMM dd, yyyy HH:mm')}
                 </p>
               </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                <p className="text-sm text-slate-500 dark:text-slate-400">Assigned Warden</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{selectedOutpass.wardenName || (selectedOutpass.warden && (selectedOutpass.warden.firstName ? `${selectedOutpass.warden.firstName} ${selectedOutpass.warden.lastName || ''}` : (typeof selectedOutpass.warden === 'string' ? selectedOutpass.warden : (selectedOutpass.warden?.email || '-')))) || '-'}</p>
+                {selectedOutpass.warden?.assignedStudentsCount !== undefined && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Assigned Students: {selectedOutpass.warden.assignedStudentsCount}</p>
+                )}
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                <p className="text-sm text-slate-500 dark:text-slate-400">Assigned HOD</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{selectedOutpass.hodName || (selectedOutpass.hod && (selectedOutpass.hod.name || (selectedOutpass.hod.firstName ? `${selectedOutpass.hod.firstName} ${selectedOutpass.hod.lastName || ''}` : (typeof selectedOutpass.hod === 'string' ? selectedOutpass.hod : (selectedOutpass.hod?.email || '-'))))) || '-'}</p>
+                {selectedOutpass.hod?.assignedStudentsCount !== undefined && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Assigned Students: {selectedOutpass.hod.assignedStudentsCount}</p>
+                )}
+              </div>
               <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl col-span-2">
                 <p className="text-sm text-slate-500 dark:text-slate-400">Status</p>
                 <Badge variant={getStatusColor(selectedOutpass.status)} className="mt-2">
-                  {selectedOutpass.status}
+                  {selectedOutpass.status || 'N/A'}
                 </Badge>
               </div>
             </div>
@@ -417,9 +661,9 @@ export default function OutpassManagement() {
                       setShowViewModal(false)
                       handleApprove(selectedOutpass)
                     }}
-                  >
-                    Approve
-                  </Button>
+                    aria-label="Approve"
+                    title="Approve"
+                  />
                   <Button
                     variant="danger"
                     icon={XCircleIcon}
@@ -427,14 +671,34 @@ export default function OutpassManagement() {
                       setShowViewModal(false)
                       handleReject(selectedOutpass)
                     }}
-                  >
-                    Reject
-                  </Button>
+                    aria-label="Reject"
+                    title="Reject"
+                  />
                 </>
               )}
             </ModalFooter>
           </div>
         )}
+      </Modal>
+
+      {/* Parent OTP Modal */}
+      <Modal
+        isOpen={showOtpModal}
+        onClose={() => setShowOtpModal(false)}
+        title="Enter Parent OTP"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Enter the OTP sent to the parent to confirm approval.</p>
+          <Input placeholder="Enter 6-digit OTP" value={otpValue} onChange={(e) => setOtpValue(e.target.value)} />
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={resendOtp}>Resend OTP</Button>
+          </div>
+          <ModalFooter>
+            <Button variant="ghost" onClick={() => setShowOtpModal(false)}>Cancel</Button>
+            <Button variant="success" onClick={submitOtp}>Submit OTP</Button>
+          </ModalFooter>
+        </div>
       </Modal>
 
       {/* Approve Modal */}
@@ -463,9 +727,13 @@ export default function OutpassManagement() {
             <Button variant="ghost" onClick={() => setShowApproveModal(false)}>
               Cancel
             </Button>
-            <Button variant="success" icon={CheckCircleIcon} onClick={confirmApprove}>
-              Approve Request
-            </Button>
+            <Button
+              variant="success"
+              icon={CheckCircleIcon}
+              onClick={confirmApprove}
+              aria-label="Approve Request"
+              title="Approve Request"
+            />
           </ModalFooter>
         </div>
       </Modal>
@@ -507,9 +775,9 @@ export default function OutpassManagement() {
               icon={XCircleIcon}
               onClick={confirmReject}
               disabled={!rejectReason.trim()}
-            >
-              Reject Request
-            </Button>
+              aria-label="Reject Request"
+              title="Reject Request"
+            />
           </ModalFooter>
         </div>
       </Modal>

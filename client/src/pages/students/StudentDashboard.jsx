@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion as Motion } from 'framer-motion'
 import { useSelector } from 'react-redux'
 import toast from 'react-hot-toast'
@@ -37,8 +38,14 @@ import QRCode from 'qrcode'
 
 export default function StudentDashboard() {
   const user = useSelector(selectUser)
+  const navigate = useNavigate()
+  // Debug helper
+  const dbg = (label, obj) => {
+    try { console.debug('[StudentDashboard]', label, obj) } catch { /* noop */ }
+  }
   const [profile, setProfile] = useState(null)
   const [recentOutpasses, setRecentOutpasses] = useState([])
+  const [lastFetchRaw, setLastFetchRaw] = useState(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [canRequestOutpass, setCanRequestOutpass] = useState(true)
@@ -89,7 +96,11 @@ export default function StudentDashboard() {
   const fetchProfile = useCallback(async () => {
     try {
       const response = await studentService.getProfile()
-      setProfile(response.data)
+      dbg('getProfile raw response', response)
+      // Normalize ApiResponse wrapper or raw payload
+      const payload = response?.data || response
+      dbg('getProfile normalized payload', payload)
+      setProfile(payload)
     } catch (error) {
       console.error('Failed to fetch profile:', error)
       toast.error('Failed to load profile')
@@ -101,7 +112,29 @@ export default function StudentDashboard() {
     try {
       setLoading(true)
       const response = await outpassService.getMyOutpasses({ limit: 5, sort: '-createdAt' })
-      setRecentOutpasses(response.data?.outpasses || response.data || [])
+      dbg('getMyOutpasses raw response', response)
+      // Keep raw payload for debugging in UI when needed
+      setLastFetchRaw(response)
+      // apiClient sometimes returns the raw payload or an ApiResponse wrapper.
+      // Normalize both shapes: { outpasses } or { data: { outpasses } }
+      const payload = response?.data || response
+      // Normalize array shape and map server fields to client-expected fields
+      const rawList = payload?.outpasses || (Array.isArray(payload) ? payload : [])
+      dbg('getMyOutpasses rawList', rawList)
+      const normalized = Array.isArray(rawList) ? rawList.map(o => ({
+        ...o,
+        // server uses leaveTime/expectedReturnTime; UI expects departureDateTime/returnDateTime
+        departureDateTime: o.leaveTime || o.departureDateTime || o.leave_time || null,
+        returnDateTime: o.expectedReturnTime || o.returnDateTime || o.return_time || null,
+        // destination may be { place: '...' } or string
+        destination: typeof o.destination === 'object' ? (o.destination.place || '') : (o.destination || ''),
+        // ensure id field
+        _id: o._id || o.id || o.requestId || o.request_id || null
+      })) : []
+
+      dbg('getMyOutpasses normalized', normalized)
+
+      setRecentOutpasses(normalized)
     } catch (error) {
       console.error('Failed to fetch outpasses:', error)
       toast.error('Failed to load outpass history')
@@ -114,10 +147,11 @@ export default function StudentDashboard() {
   const checkEligibility = useCallback(async () => {
     try {
       const response = await studentService.canRequestOutpass()
-      setCanRequestOutpass(response.data?.canRequest || response.canRequest || true)
-      
-      if (!response.data?.canRequest && response.data?.reason) {
-        toast.error(response.data.reason)
+      const payload = response?.data || response
+      setCanRequestOutpass(payload?.canRequest ?? true)
+
+      if (!payload?.canRequest && payload?.reason) {
+        toast.error(payload.reason)
       }
     } catch (error) {
       console.error('Failed to check eligibility:', error)
@@ -125,10 +159,11 @@ export default function StudentDashboard() {
   }, [])
 
   useEffect(() => {
+    dbg('mounted user', user)
     fetchProfile()
     fetchRecentOutpasses()
     checkEligibility()
-  }, [fetchProfile, fetchRecentOutpasses, checkEligibility])
+  }, [user, fetchProfile, fetchRecentOutpasses, checkEligibility])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -150,7 +185,7 @@ export default function StudentDashboard() {
     setSubmitting(true)
     const loadingToast = toast.loading('Submitting outpass request...')
 
-    try {
+  try {
       // Combine date and time
       const leaveTime = new Date(`${formData.departureDate}T${formData.departureTime}`)
       const expectedReturnTime = new Date(`${formData.returnDate}T${formData.returnTime}`)
@@ -164,14 +199,34 @@ export default function StudentDashboard() {
         hodApprovalRequested: formData.hodApprovalRequested
       }
 
-      await outpassService.create(requestData)
-      
+    const createResp = await outpassService.create(requestData)
+    dbg('create outpass raw response', createResp)
+
+    // Normalize create response which may be { outpassRequest } or { data: { outpassRequest } } or ApiResponse wrapper
+    const created = createResp?.outpassRequest || createResp?.data?.outpassRequest || createResp?.data || createResp
+
       toast.success('Outpass request submitted successfully!', {
         id: loadingToast,
         icon: '✅'
       })
 
-      // Reset form and refresh data
+      // Optimistically add the created outpass to recent list so UI reflects pending count immediately
+      if (created) {
+        const norm = {
+          ...created,
+          departureDateTime: created.leaveTime || created.departureDateTime || created.leave_time || null,
+          returnDateTime: created.expectedReturnTime || created.returnDateTime || created.return_time || null,
+          destination: typeof created.destination === 'object' ? (created.destination.place || '') : (created.destination || ''),
+          _id: created._id || created.id || created.requestId || created.request_id || null
+        }
+        dbg('created normalized', norm)
+        setRecentOutpasses(prev => [norm, ...prev])
+      }
+
+      // After creating, student should not be able to request another until expiry/closure
+      setCanRequestOutpass(false)
+
+  // Reset form and refresh data
       setShowRequestForm(false)
       setFormData({
         outpassType: 'local',
@@ -184,8 +239,9 @@ export default function StudentDashboard() {
         hodApprovalRequested: false
       })
       
-      fetchRecentOutpasses()
-      checkEligibility()
+  // Refresh server state in background to ensure consistency
+  fetchRecentOutpasses()
+  checkEligibility()
     } catch (error) {
       toast.error(error.message || 'Failed to submit outpass request', {
         id: loadingToast
@@ -357,12 +413,22 @@ export default function StudentDashboard() {
               <Card glassmorphic gradient>
                 <div className="flex items-center justify-between mb-6">
                   <CardTitle gradient>Recent Outpasses</CardTitle>
-                  <Button
-                    icon={PaperAirplaneIcon}
-                    onClick={() => setShowRequestForm(true)}
-                  >
-                    New Request
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => navigate('/student/history')}
+                    >
+                      View Full History
+                    </Button>
+                    <Button
+                      icon={PaperAirplaneIcon}
+                      onClick={() => setShowRequestForm(true)}
+                      disabled={!canRequestOutpass || recentOutpasses.some(o => ['pending','approved','approved_by_warden','approved_by_hod','out'].includes(o.status))}
+                      title={!canRequestOutpass || recentOutpasses.some(o => ['pending','approved','approved_by_warden','approved_by_hod','out'].includes(o.status)) ? 'You have an active or pending outpass' : 'Create a new outpass request'}
+                    >
+                      New Request
+                    </Button>
+                  </div>
                 </div>
 
                 {loading ? (
@@ -370,16 +436,28 @@ export default function StudentDashboard() {
                     {[1, 2, 3].map(i => <LoadingCard key={i} />)}
                   </div>
                 ) : recentOutpasses.length === 0 ? (
-                  <EmptyState
-                    icon={CalendarDaysIcon}
-                    title="No outpass requests yet"
-                    description="Click 'New Request' to submit your first outpass request"
-                    action={
-                      <Button icon={PaperAirplaneIcon} onClick={() => setShowRequestForm(true)}>
-                        Create Request
-                      </Button>
-                    }
-                  />
+                  <>
+                    <EmptyState
+                      icon={CalendarDaysIcon}
+                      title="No outpass requests yet"
+                      description="Click 'New Request' to submit your first outpass request"
+                      action={
+                        <Button icon={PaperAirplaneIcon} onClick={() => setShowRequestForm(true)}>
+                          Create Request
+                        </Button>
+                      }
+                    />
+
+                    {/* Debug: show raw API payload when no outpasses are returned */}
+                    {lastFetchRaw && (
+                      <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-md">
+                        <div className="text-sm text-slate-700 dark:text-slate-300 mb-2">Raw outpasses response (for debugging):</div>
+                        <pre className="max-h-64 overflow-auto text-xs text-slate-700 dark:text-slate-300">
+{JSON.stringify(lastFetchRaw, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="space-y-4">
                     {recentOutpasses.map((outpass, index) => {
@@ -445,7 +523,7 @@ export default function StudentDashboard() {
                       label="Outpass Type"
                       name="outpassType"
                       value={formData.outpassType}
-                      onChange={(value) => handleSelectChange('outpassType', value)}
+                      onChange={(e) => handleSelectChange('outpassType', e.target.value)}
                       options={[
                         { value: 'local', label: 'Local (Within City)' },
                         { value: 'home', label: 'Home Visit' },

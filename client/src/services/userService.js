@@ -4,6 +4,9 @@ export const userService = {
   getAll: async (params = {}) => {
     return await apiClient.get('/users', { params })
   },
+  getById: async (role, id) => {
+    return await apiClient.get(`/users/${role}/${id}`)
+  },
   getStats: async () => {
     return await apiClient.get('/users/stats')
   },
@@ -12,6 +15,9 @@ export const userService = {
   },
   getCredential: async (role, id) => {
     return await apiClient.get(`/users/${role}/${id}/credential`)
+  },
+  resetPassword: async (role, id) => {
+    return await apiClient.post(`/users/${role}/${id}/reset-password`)
   },
   update: async (role, id, data) => {
     return await apiClient.patch(`/users/${role}/${id}`, data)

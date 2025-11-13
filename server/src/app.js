@@ -91,7 +91,14 @@ export function createApp() {
   })
 
   // Rate limiting for API routes
-  app.use('/api', apiLimiter)
+  // Apply global API rate limiting in production only. In development we relax
+  // the global limiter to avoid blocking frequent frontend dev requests
+  // (React StrictMode and repeated effect calls can easily trigger 429s).
+  if (config.nodeEnv === 'production') {
+    app.use('/api', apiLimiter)
+  } else {
+    logger.info('⚠️  Global API rate limiting relaxed for non-production environment')
+  }
 
   // API routes
   app.use('/api/v1/auth', authRoutes)

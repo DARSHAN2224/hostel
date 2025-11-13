@@ -227,11 +227,35 @@ class StudentService {
 
     // Update password (will be hashed by model pre-save hook)
     studentWithPassword.password = newPassword
+    // Clear forced-change flag if present (parity with authController.changePassword)
+    if (studentWithPassword.mustChangePassword) studentWithPassword.mustChangePassword = false
     await studentWithPassword.save()
 
     logger.info(`StudentService: Password changed for student ${student.studentId}`)
 
-    return { message: 'Password changed successfully' }
+    // Remove any stored generated credentials for this student to avoid showing stale plaintext
+    try {
+      const { Credential, AuditLog } = await import('../models/index.js')
+      await Credential.deleteMany({ userId: studentWithPassword._id })
+      try {
+        await AuditLog.logAction({
+          user: studentWithPassword._id,
+          userModel: 'Student',
+          action: 'update',
+          resource: 'password',
+          resourceId: studentWithPassword._id,
+          details: { reason: 'student_changed_password' },
+          status: 'success'
+        })
+      } catch (auditErr) {
+        console.warn('Failed to write audit log for student password change:', auditErr)
+      }
+    } catch (err) {
+      console.warn('Failed to delete stored credentials for student password change:', err)
+    }
+
+    // Return sanitized updated student so callers can respond with fresh data
+    return { message: 'Password changed successfully', student: this.sanitizeStudent(studentWithPassword) }
   }
 
   /**

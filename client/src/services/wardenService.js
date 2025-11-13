@@ -67,6 +67,8 @@ export const wardenService = {
           }
         ]
       };
+      // Include emergency contact if provided
+      if (wardenData.emergencyContact) payload.emergencyContact = wardenData.emergencyContact
       const response = await apiClient.post(API_ENDPOINTS.USERS, payload);
       return response.data;
     } catch (error) {
@@ -93,6 +95,10 @@ export const wardenService = {
       if (updates.email) payload.email = updates.email
       if (updates.phone) payload.phone = updates.phone
       if (updates.status) payload.status = updates.status
+      // Emergency contact can be updated as a nested object
+      if (updates.emergencyContact) payload.emergencyContact = updates.emergencyContact
+      // assignedHostelBlocks may be provided directly from admin UI
+      if (updates.assignedHostelBlocks) payload.assignedHostelBlocks = updates.assignedHostelBlocks
       
       const response = await apiClient.patch(`${API_ENDPOINTS.USERS}/warden/${id}`, payload)
       return response.data

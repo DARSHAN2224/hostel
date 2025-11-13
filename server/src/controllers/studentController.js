@@ -188,10 +188,11 @@ class StudentController {
       throw new ValidationError('New password must be at least 6 characters')
     }
 
-    await StudentService.changePassword(req.user.id, currentPassword, newPassword)
+    const result = await StudentService.changePassword(req.user.id, currentPassword, newPassword)
 
+    // If service returned updated student, include it so clients can refresh
     res.json(
-      new ApiResponse(200, null, 'Password changed successfully')
+      new ApiResponse(200, { user: result?.student || null, mustChangePassword: false }, 'Password changed successfully')
     )
   })
 

@@ -2,6 +2,9 @@
 import OutpassRequest from '../models/OutpassRequest.js';
 import Student from '../models/Student.js';
 import Hod from '../models/Hod.js';
+import { sendSms } from '../utils/smsSender.js'
+import jwt from 'jsonwebtoken'
+import { config } from '../config/config.js'
 
 
 const outpassController = {
@@ -9,11 +12,23 @@ const outpassController = {
   async createOutpassRequest(req, res) {
     try {
       const { studentId, outpassType, reason, leaveTime, expectedReturnTime, destination, hodApprovalRequested } = req.body;
-      const student = await Student.findById(studentId);
+
+      // Determine target student: if caller is a student, use their id; if warden/admin is creating
+      // on behalf, studentId must be provided.
+      let student = null;
+      if (req.user?.role === 'student') {
+        student = await Student.findById(req.user.id)
+      } else if (studentId) {
+        student = await Student.findById(studentId)
+      }
+
       if (!student) return res.status(404).json({ message: 'Student not found' });
 
       let hodId = student.hodId;
       let hod = hodId ? await Hod.findById(hodId) : null;
+
+      // Normalize destination: controller accepts either a string or object
+      const dest = typeof destination === 'string' ? { place: destination } : (destination || {})
 
       const outpassRequest = new OutpassRequest({
         student: student._id,
@@ -23,8 +38,9 @@ const outpassController = {
         reason,
         leaveTime,
         expectedReturnTime,
-        destination,
-        warden: req.user._id,
+        destination: dest,
+  // If the request is created by a warden/admin, record the warden; otherwise leave undefined
+  warden: ['warden', 'admin'].includes(req.user?.role) ? req.user.id : undefined,
         hodApprovalRequested: !!hodApprovalRequested,
         hod: hod ? hod._id : undefined
       });
@@ -42,13 +58,13 @@ const outpassController = {
       const { approved, comments } = req.body;
       const outpass = await OutpassRequest.findById(requestId);
       if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
-      if (!outpass.hodApprovalRequested || !outpass.hod.equals(req.user._id)) {
+      if (!outpass.hodApprovalRequested || !outpass.hod.equals(req.user.id)) {
         return res.status(403).json({ message: 'Not authorized for this outpass request' });
       }
       outpass.hodApproval = {
         approved,
         approvedAt: new Date(),
-        approvedBy: req.user._id,
+        approvedBy: req.user.id,
         comments
       };
       outpass.status = approved ? 'approved_by_hod' : 'rejected_by_hod';
@@ -66,7 +82,7 @@ const outpassController = {
         return res.status(403).json({ message: 'Access denied' });
       }
       
-      const hodId = req.user._id;
+  const hodId = req.user.id;
       const hod = await Hod.findById(hodId);
       if (!hod) {
         return res.status(404).json({ message: 'HOD not found' });
@@ -116,7 +132,7 @@ const outpassController = {
       if (req.user.role !== 'student') {
         return res.status(403).json({ message: 'Access denied' });
       }
-      const outpasses = await OutpassRequest.find({ student: req.user._id }).sort({ createdAt: -1 });
+  const outpasses = await OutpassRequest.find({ student: req.user.id }).sort({ createdAt: -1 });
       res.json({ outpasses, count: outpasses.length });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
@@ -134,7 +150,7 @@ const outpassController = {
       // Build query based on role
       let query = {};
       if (req.user.role === 'warden') {
-        query.warden = req.user._id;
+        query.warden = req.user.id;
       }
       // Admin and HOD can see all outpasses
       
@@ -143,12 +159,37 @@ const outpassController = {
         query.status = req.query.status;
       }
       
-      const outpasses = await OutpassRequest.find(query)
+      let outpasses = await OutpassRequest.find(query)
         .populate('student', 'firstName lastName rollNumber email department')
         .populate('warden', 'firstName lastName email')
         .populate('hod', 'firstName lastName email')
         .sort({ createdAt: -1 });
-      res.json({ outpasses, count: outpasses.length });
+
+      // Convert to plain objects and attach assignedStudentsCount for populated wardens/hods
+      const plain = outpasses.map(op => (op.toObject ? op.toObject() : JSON.parse(JSON.stringify(op))));
+
+      // Collect unique warden/hod ids from results
+      const wardenIds = Array.from(new Set(plain.map(p => p.warden && p.warden._id).filter(Boolean)));
+      const hodIds = Array.from(new Set(plain.map(p => p.hod && p.hod._id).filter(Boolean)));
+
+      const counts = {};
+      // For wardens
+      await Promise.all(wardenIds.map(async id => {
+        counts[`warden_${id}`] = await Student.countDocuments({ wardenId: id });
+      }));
+      // For hods
+      await Promise.all(hodIds.map(async id => {
+        counts[`hod_${id}`] = await Student.countDocuments({ hodId: id });
+      }));
+
+      // Attach counts back to plain objects
+      const enhanced = plain.map(p => {
+        if (p.warden && p.warden._id) p.warden.assignedStudentsCount = counts[`warden_${p.warden._id}`] || 0
+        if (p.hod && p.hod._id) p.hod.assignedStudentsCount = counts[`hod_${p.hod._id}`] || 0
+        return p
+      })
+
+      res.json({ outpasses: enhanced, count: enhanced.length });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
     }
@@ -169,7 +210,7 @@ const outpassController = {
       outpass.wardenApproval = {
         approved: true,
         approvedAt: new Date(),
-        approvedBy: req.user._id,
+        approvedBy: req.user.id,
         comments
       };
       
@@ -201,8 +242,8 @@ const outpassController = {
       
       outpass.status = 'rejected';
       outpass.rejectionReason = reason;
-      outpass.rejectedAt = new Date();
-      outpass.rejectedBy = req.user._id;
+  outpass.rejectedAt = new Date();
+  outpass.rejectedBy = req.user.id;
       outpass.rejectedByModel = 'Warden';
       
       await outpass.save();
@@ -325,6 +366,8 @@ const outpassController = {
       const { requestId } = req.params;
       const outpass = await OutpassRequest.findById(requestId)
         .populate('student', 'firstName lastName rollNumber email phoneNumber hostelBlock profilePicture')
+        .populate('warden', 'firstName lastName email')
+        .populate('hod', 'firstName lastName email')
         .populate('wardenApprovedBy', 'firstName lastName')
         .populate('hodApprovedBy', 'firstName lastName');
 
@@ -337,7 +380,16 @@ const outpassController = {
         return res.status(403).json({ message: 'Access denied' });
       }
 
-      res.json({ outpass });
+      // Attach assignedStudentsCount for populated warden/hod (if present)
+      const plain = outpass.toObject ? outpass.toObject() : JSON.parse(JSON.stringify(outpass))
+      if (plain.warden && plain.warden._id) {
+        plain.warden.assignedStudentsCount = await Student.countDocuments({ wardenId: plain.warden._id })
+      }
+      if (plain.hod && plain.hod._id) {
+        plain.hod.assignedStudentsCount = await Student.countDocuments({ hodId: plain.hod._id })
+      }
+
+      res.json({ outpass: plain });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
     }
@@ -510,6 +562,227 @@ const outpassController = {
       });
     } catch (err) {
       res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Request parent OTP / verification (triggered by admin/warden)
+  async requestParentOtp(req, res) {
+    try {
+      // Only warden/admin should trigger parent contact
+      if (!['warden', 'admin'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Only warden or admin can request parent verification.' });
+      }
+      const { requestId } = req.params;
+      const outpass = await OutpassRequest.findById(requestId).populate('student', 'firstName lastName parentDetails parentId');
+      if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
+
+      // Determine parent contact: prefer explicit parentApproval.parentContact, then student.parentDetails.guardianPhone
+      let parentPhone = outpass.parentApproval?.parentContact || outpass.student?.parentDetails?.guardianPhone || null;
+      if (!parentPhone && outpass.student?.parentId) {
+        const Parent = await import('../models/Parent.js').then(m => m.default)
+        const parent = await Parent.findById(outpass.student.parentId)
+        parentPhone = parent ? (parent.primaryPhone || parent.phone || null) : null
+      }
+
+      if (!parentPhone) {
+        return res.status(400).json({ message: 'Parent contact not available for this student' });
+      }
+
+      // Prevent requesting OTP if parent already approved
+      if (outpass.parentApproval && outpass.parentApproval.approved) {
+        return res.status(400).json({ message: 'Parent has already approved this outpass' });
+      }
+
+      // Generate a short-lived OTP (6 digits) and store on outpass.parentApproval
+      const otp = Math.floor(100000 + Math.random() * 900000).toString()
+      outpass.parentApproval = outpass.parentApproval || {}
+      outpass.parentApproval.otp = otp
+      outpass.parentApproval.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      outpass.parentApproval.parentContact = parentPhone
+      outpass.parentApproval.requestedAt = new Date()
+
+      // Persist OTP on the outpass so it can be validated by parent portal/tests
+      await outpass.save()
+
+      // Compose a short SMS with OTP and a brief summary. Full outpass object is returned in the
+      // API response (for admin/warden/testing) but SMS contains a short human-friendly message.
+      const smsBody = `Your child's outpass request. Student: ${outpass.student?.firstName || ''} ${outpass.student?.lastName || ''}. ` +
+        `Leave: ${outpass.leaveTime ? new Date(outpass.leaveTime).toLocaleString() : 'N/A'}. Return: ${outpass.expectedReturnTime ? new Date(outpass.expectedReturnTime).toLocaleString() : 'N/A'}. ` +
+        `Destination: ${(outpass.destination && (outpass.destination.place || outpass.destination)) || 'N/A'}. OTP: ${otp}. This code expires in 10 minutes.`
+
+      let smsResult = { success: false }
+      try {
+        smsResult = await sendSms(parentPhone, smsBody)
+      } catch (smsErr) {
+        // Log and continue — admin can still see OTP in response during development
+        console.error('Failed to send parent OTP SMS:', smsErr.message || smsErr)
+      }
+
+      // Return parent contact and whether SMS was sent. Do NOT include the OTP or OTP expiry in API responses.
+      const sanitized = outpass.toObject ? outpass.toObject() : JSON.parse(JSON.stringify(outpass))
+      if (sanitized.parentApproval) {
+        delete sanitized.parentApproval.otp
+        delete sanitized.parentApproval.otpExpiresAt
+      }
+
+      res.json({ message: 'Parent verification requested', parentContact: parentPhone, otpSent: !!smsResult.success, outpass: sanitized })
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Warden: send request to HOD for approval
+  async sendToHod(req, res) {
+    try {
+      if (!['warden', 'admin'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Only warden or admin can send to HOD.' });
+      }
+
+      const { requestId } = req.params;
+      const outpass = await OutpassRequest.findById(requestId).populate('student', 'firstName lastName hodId');
+      if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
+
+      // If already requested, just return
+      if (outpass.hodApprovalRequested) {
+        return res.json({ message: 'Already sent to HOD', outpass });
+      }
+
+      // Mark as requested for HOD approval and set hod reference if student has one
+      outpass.hodApprovalRequested = true;
+      if (outpass.student && outpass.student.hodId) {
+        outpass.hod = outpass.student.hodId;
+      }
+
+      await outpass.save();
+
+      const sanitized = outpass.toObject ? outpass.toObject() : JSON.parse(JSON.stringify(outpass))
+      if (sanitized.parentApproval) {
+        delete sanitized.parentApproval.otp
+        delete sanitized.parentApproval.otpExpiresAt
+      }
+
+      // Try to notify HOD by SMS (if HOD assigned and has phone)
+      let smsResult = { success: false }
+      try {
+        if (outpass.hod) {
+          const hodRecord = await Hod.findById(outpass.hod)
+          if (hodRecord && hodRecord.phone) {
+            const studentName = outpass.student ? `${outpass.student.firstName || ''} ${outpass.student.lastName || ''}`.trim() : ''
+            const smsBody = `Outpass requires your approval. Student: ${studentName || 'Unknown'}; Request: ${outpass.requestId || ''}. Leave: ${outpass.leaveTime ? new Date(outpass.leaveTime).toLocaleString() : 'N/A'}. Please review in the HOD portal.`
+            smsResult = await sendSms(hodRecord.phone, smsBody)
+          }
+        }
+      } catch (smsErr) {
+        console.error('Failed to send HOD notification SMS:', smsErr && smsErr.message ? smsErr.message : smsErr)
+      }
+
+      res.json({ message: 'Outpass sent to HOD for approval', outpass: sanitized, hodSmsSent: !!smsResult.success })
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Parent uses OTP to approve outpass (parent portal)
+  async parentApproveOutpass(req, res) {
+    try {
+      const { requestId } = req.params;
+      const { otp, comments } = req.body;
+
+      const outpass = await OutpassRequest.findById(requestId);
+      if (!outpass) return res.status(404).json({ message: 'Outpass request not found' });
+
+      if (!outpass.parentApproval || !outpass.parentApproval.otp) {
+        return res.status(400).json({ message: 'No parent approval request found for this outpass' });
+      }
+
+      if (new Date() > new Date(outpass.parentApproval.otpExpiresAt)) {
+        return res.status(400).json({ message: 'OTP expired' });
+      }
+
+      if (!otp || otp.toString() !== outpass.parentApproval.otp.toString()) {
+        return res.status(400).json({ message: 'Invalid OTP' });
+      }
+
+      // Mark approved and record metadata
+      outpass.parentApproval.approved = true
+      outpass.parentApproval.approvedAt = new Date()
+      outpass.parentApproval.comments = comments || ''
+
+      // Remove OTP fields to prevent reuse/replay attacks
+      if (outpass.parentApproval.otp) delete outpass.parentApproval.otp
+      if (outpass.parentApproval.otpExpiresAt) delete outpass.parentApproval.otpExpiresAt
+
+      // If parent approves and warden already approved, update final status if needed
+      if (outpass.wardenApproval && outpass.wardenApproval.approved) {
+        outpass.status = 'approved'
+      }
+
+      await outpass.save()
+
+      // Generate a short-lived parent token so parent/mobile app can fetch full details securely
+      const parentToken = jwt.sign(
+        { sub: outpass._id.toString(), type: 'parent' },
+        config.jwt.secret,
+        { expiresIn: '15m' }
+      )
+
+      // Do not leak OTP values back in the response
+      const sanitized = outpass.toObject ? outpass.toObject() : JSON.parse(JSON.stringify(outpass))
+      if (sanitized.parentApproval) {
+        delete sanitized.parentApproval.otp
+        delete sanitized.parentApproval.otpExpiresAt
+      }
+
+      res.json({ message: 'Outpass approved by parent', outpass: sanitized, parentToken, expiresIn: 15 * 60 })
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message });
+    }
+  },
+
+  // Parent portal: fetch full outpass after OTP approval using short-lived parent token
+  async getOutpassForParentPortal(req, res) {
+    try {
+      const { requestId } = req.params
+
+      // Accept token via Authorization Bearer or ?token= query
+      let token = null
+      const authHeader = req.headers.authorization
+      if (authHeader && authHeader.startsWith('Bearer ')) token = authHeader.split(' ')[1]
+      if (!token) token = req.query.token
+
+      if (!token) return res.status(401).json({ message: 'Missing parent token' })
+
+      let payload
+      try {
+        payload = jwt.verify(token, config.jwt.secret)
+      } catch (err) {
+        console.debug && console.debug('Parent token verification failed', err)
+        return res.status(401).json({ message: 'Invalid or expired token' })
+      }
+
+      if (!payload || payload.type !== 'parent' || payload.sub !== requestId) {
+        return res.status(403).json({ message: 'Token does not grant access to this outpass' })
+      }
+
+      const outpass = await OutpassRequest.findById(requestId)
+        .populate('student', 'firstName lastName rollNumber email phoneNumber hostelBlock profilePicture')
+
+      if (!outpass) return res.status(404).json({ message: 'Outpass not found' })
+
+      // Ensure parent has approved
+      if (!outpass.parentApproval || !outpass.parentApproval.approved) {
+        return res.status(403).json({ message: 'Parent approval not completed for this outpass' })
+      }
+
+      const sanitized = outpass.toObject ? outpass.toObject() : JSON.parse(JSON.stringify(outpass))
+      if (sanitized.parentApproval) {
+        delete sanitized.parentApproval.otp
+        delete sanitized.parentApproval.otpExpiresAt
+      }
+
+      res.json({ outpass: sanitized })
+    } catch (err) {
+      res.status(500).json({ message: 'Server error', error: err.message })
     }
   }
 };

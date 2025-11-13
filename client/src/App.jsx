@@ -264,6 +264,16 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route
+              path="/student/history"
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={['student']}>
+                    <OutpassHistory />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              }
+            />
             <Route 
               path="/reports"
               element={

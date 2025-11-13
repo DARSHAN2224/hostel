@@ -24,6 +24,7 @@ export const getAllWardens = asyncHandler(async (req, res) => {
 
   const wardens = await Warden.find(query)
     .select('-password -refreshToken')
+    .populate('assignedStudentsCount')
     .limit(Number.parseInt(limit))
     .skip(Number.parseInt(skip))
     .sort({ createdAt: -1 })
@@ -67,7 +68,7 @@ export const getAllWardens = asyncHandler(async (req, res) => {
  * @access  Private (Admin, Warden)
  */
 export const getWardenById = asyncHandler(async (req, res) => {
-  const warden = await Warden.findById(req.params.id).select('-password -refreshToken')
+  const warden = await Warden.findById(req.params.id).select('-password -refreshToken').populate('assignedStudentsCount')
 
   if (!warden) {
     return res.status(404).json(new ApiResponse(404, null, 'Warden not found'))
@@ -151,7 +152,7 @@ export const getWardenDashboardStats = asyncHandler(async (req, res) => {
 export const getWardensByHostelType = asyncHandler(async (req, res) => {
   const { hostelType } = req.params
 
-  const wardens = await Warden.find({ hostelType }).select('-password -refreshToken')
+  const wardens = await Warden.find({ hostelType }).select('-password -refreshToken').populate('assignedStudentsCount')
 
   res.json(new ApiResponse(200, wardens, `Wardens for ${hostelType} hostel fetched successfully`))
 })

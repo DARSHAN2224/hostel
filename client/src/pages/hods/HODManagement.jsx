@@ -30,6 +30,7 @@ import toast from 'react-hot-toast'
 import { useSelector } from 'react-redux'
 import { selectUser } from '../../store/authSlice'
 import hodService from '../../services/hodService'
+import userService from '../../services/userService'
 
 export default function HODManagement() {
   const [hods, setHods] = useState([])
@@ -57,8 +58,10 @@ export default function HODManagement() {
   const fetchHODs = useCallback(async () => {
     try {
       setLoading(true)
-      const { hods } = (await (await import('../../services/hodService')).hodService.getAll()).data || {};
-      setHods(hods || [])
+      const resp = await hodService.getAll()
+      const payload = resp?.data || {}
+      // Server returns { hods, count }
+      setHods(payload.hods || [])
     } catch (error) {
       console.error('Failed to fetch HODs:', error)
       toast.error('Failed to load HODs')
@@ -197,6 +200,38 @@ export default function HODManagement() {
       navigate('/')
     }
   }, [currentUser, navigate])
+
+  const revealPassword = async (role, id) => {
+    if (!id) return
+    try {
+      const resp = await userService.getCredential(role, id)
+      const pwd = resp?.data?.password || resp?.password || resp?.data?.data?.password
+      if (pwd) {
+        setHods(prev => prev.map(h => h._id === id ? { ...h, generatedPassword: pwd } : h))
+        toast.success('Password revealed')
+      } else {
+        toast.error('No stored password found')
+      }
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        toast('No stored generated password found for this user. You can send a password reset notification to the user instead.', { icon: 'ℹ️' })
+      } else {
+        console.error('Failed to reveal password', err)
+        toast.error(err.response?.data?.message || 'Failed to reveal password')
+      }
+    }
+  }
+
+  const triggerReset = async (role, id) => {
+    if (!id) return
+    try {
+      await userService.resetPassword(role, id)
+      toast.success('Password reset requested and user notified')
+    } catch (err) {
+      console.error('Reset request failed', err)
+      toast.error(err.response?.data?.message || 'Failed to request password reset')
+    }
+  }
 
   const confirmDelete = async () => {
     try {
@@ -405,11 +440,19 @@ export default function HODManagement() {
                       {/* Password column - admin only */}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
                         {currentUser?.role === 'admin' ? (
-                          (hod.generatedPassword || hod.generated_password || hod.plainPassword || hod.password) ? (
-                            <span className="font-mono text-sm text-teal-700 dark:text-teal-300">{hod.generatedPassword || hod.generated_password || hod.plainPassword || hod.password}</span>
-                          ) : (
-                            <span className="text-sm text-slate-500">—</span>
-                          )
+                          <div className="flex items-center gap-2">
+                            {(hod.generatedPassword || hod.generated_password || hod.plainPassword || hod.password) ? (
+                              <span className="font-mono text-sm text-teal-700 dark:text-teal-300">{hod.generatedPassword || hod.generated_password || hod.plainPassword || hod.password}</span>
+                            ) : (
+                              <span className="text-sm text-slate-500">—</span>
+                            )}
+                            <button onClick={() => revealPassword('hod', hod._id)} title="Reveal stored password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                              <EyeIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                            </button>
+                            <button onClick={() => triggerReset('hod', hod._id)} title="Request password reset" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                              <ArrowPathIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-sm text-slate-500">Hidden</span>
                         )}
@@ -511,7 +554,7 @@ export default function HODManagement() {
               <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                 <p className="text-sm text-slate-500 dark:text-slate-400">Assigned Students</p>
                 <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  {selectedHOD.assignedStudents || '0'}
+                  {typeof selectedHOD?.assignedStudentsCount === 'number' ? selectedHOD.assignedStudentsCount : (selectedHOD?.assignedStudents || '0')}
                 </p>
               </div>
             </div>

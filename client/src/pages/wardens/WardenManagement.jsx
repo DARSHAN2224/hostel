@@ -27,6 +27,7 @@ import Badge from '../../components/ui/Badge'
 import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import wardenService from '../../services/wardenService'
+import userService from '../../services/userService'
 import toast from 'react-hot-toast'
 import { useSelector } from 'react-redux'
 import { selectUser } from '../../store/authSlice'
@@ -53,7 +54,8 @@ export default function WardenManagement() {
     phone: '',
     hostelBlock: '',
     hostelType: '',
-    status: 'active'
+    status: 'active',
+    emergencyContact: { name: '', phone: '', relationship: '' }
   })
   const inFlightRef = useRef(false)
 
@@ -84,11 +86,14 @@ export default function WardenManagement() {
         }
 
         // Try to get assignedStudents from multiple possible fields
+        // Prefer virtual populated 'assignedStudentsCount' (server provides this when available)
         let assignedStudents = 0;
-        if (Array.isArray(warden.assignedHostelBlocks) && warden.assignedHostelBlocks.length > 0) {
-          assignedStudents = warden.assignedHostelBlocks[0].currentOccupancy || 0;
+        if (typeof warden.assignedStudentsCount === 'number') {
+          assignedStudents = warden.assignedStudentsCount
         } else if (typeof warden.assignedStudents === 'number') {
           assignedStudents = warden.assignedStudents;
+        } else if (Array.isArray(warden.assignedHostelBlocks) && warden.assignedHostelBlocks.length > 0) {
+          assignedStudents = warden.assignedHostelBlocks[0].currentOccupancy || 0;
         }
 
         return {
@@ -155,7 +160,8 @@ export default function WardenManagement() {
       phone: warden.phone || '',
       hostelBlock: warden.hostelBlock || '',
       hostelType: warden.hostelType || '',
-      status: warden.status || 'active'
+      status: warden.status || 'active',
+      emergencyContact: warden.emergencyContact || { name: '', phone: '', relationship: '' }
     })
     setShowEditModal(true)
   }
@@ -168,7 +174,8 @@ export default function WardenManagement() {
       phone: '',
       hostelBlock: '',
       hostelType: '',
-      status: 'active'
+      status: 'active',
+      emergencyContact: { name: '', phone: '', relationship: '' }
     })
     setShowAddModal(true)
   }
@@ -204,7 +211,8 @@ export default function WardenManagement() {
         phone: '',
         hostelBlock: '',
         hostelType: '',
-        status: 'active'
+        status: 'active',
+        emergencyContact: { name: '', phone: '', relationship: '' }
       })
       fetchWardens()
     } catch (error) {
@@ -229,6 +237,38 @@ export default function WardenManagement() {
       navigate('/')
     }
   }, [currentUser, navigate])
+
+  const revealPassword = async (role, id) => {
+    if (!id) return
+    try {
+      const resp = await userService.getCredential(role, id)
+      const pwd = resp?.data?.password || resp?.password || resp?.data?.data?.password
+      if (pwd) {
+        setWardens(prev => prev.map(w => w._id === id ? { ...w, generatedPassword: pwd } : w))
+        toast.success('Password revealed')
+      } else {
+        toast.error('No stored password found')
+      }
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        toast('No stored generated password found for this user. You can send a password reset notification to the user instead.', { icon: 'ℹ️' })
+      } else {
+        console.error('Failed to reveal password', err)
+        toast.error(err.response?.data?.message || 'Failed to reveal password')
+      }
+    }
+  }
+
+  const triggerReset = async (role, id) => {
+    if (!id) return
+    try {
+      await userService.resetPassword(role, id)
+      toast.success('Password reset requested and user notified')
+    } catch (err) {
+      console.error('Reset request failed', err)
+      toast.error(err.response?.data?.message || 'Failed to request password reset')
+    }
+  }
 
   const confirmDelete = async () => {
     try {
@@ -332,11 +372,19 @@ export default function WardenManagement() {
                 {/* Password column - visible to admins only. Also show security role passwords here since security entries are included in warden list */}
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
                   {currentUser?.role === 'admin' ? (
-                    (warden.generatedPassword || warden.generated_password || warden.plainPassword || warden.password) ? (
-                      <span className="font-mono text-sm text-amber-700 dark:text-amber-300">{warden.generatedPassword || warden.generated_password || warden.plainPassword || warden.password}</span>
-                    ) : (
-                      <span className="text-sm text-slate-500">—</span>
-                    )
+                    <div className="flex items-center gap-2">
+                      { (warden.generatedPassword || warden.generated_password || warden.plainPassword || warden.password) ? (
+                        <span className="font-mono text-sm text-amber-700 dark:text-amber-300">{warden.generatedPassword || warden.generated_password || warden.plainPassword || warden.password}</span>
+                      ) : (
+                        <span className="text-sm text-slate-500">—</span>
+                      )}
+                      <button onClick={() => revealPassword('warden', warden._id)} title="Reveal stored password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                        <EyeIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                      </button>
+                      <button onClick={() => triggerReset('warden', warden._id)} title="Request password reset" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                        <ArrowPathIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                      </button>
+                    </div>
                   ) : (
                     <span className="text-sm text-slate-500">Hidden</span>
                   )}
@@ -645,6 +693,16 @@ export default function WardenManagement() {
               <option value="D">Block D</option>
             </Select>
           </div>
+          {/* Emergency Contact */}
+          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Name" value={editData.emergencyContact?.name || ''} onChange={(e) => setEditData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, name: e.target.value } }))} />
+            <Input label="Phone" value={editData.emergencyContact?.phone || ''} onChange={(e) => setEditData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, phone: e.target.value } }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Relationship" value={editData.emergencyContact?.relationship || ''} onChange={(e) => setEditData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, relationship: e.target.value } }))} />
+            <div />
+          </div>
           <Select
             label="Status"
             value={editData.status || 'active'}
@@ -724,6 +782,16 @@ export default function WardenManagement() {
               <option value="C">Block C</option>
               <option value="D">Block D</option>
             </Select>
+          </div>
+          {/* Emergency Contact */}
+          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Name" value={addData.emergencyContact?.name || ''} onChange={(e) => setAddData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, name: e.target.value } }))} />
+            <Input label="Phone" value={addData.emergencyContact?.phone || ''} onChange={(e) => setAddData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, phone: e.target.value } }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Relationship" value={addData.emergencyContact?.relationship || ''} onChange={(e) => setAddData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, relationship: e.target.value } }))} />
+            <div />
           </div>
           <ModalFooter>
             <Button variant="ghost" onClick={() => setShowAddModal(false)}>

@@ -188,6 +188,37 @@ export default function SecurityManagement() {
       toast.error('Failed to copy password')
     }
   }
+  const revealPassword = async (u) => {
+    if (!u || !u._id) return
+    try {
+      const resp = await userService.getCredential('security', u._id)
+      const pwd = resp?.data?.password || resp?.password || resp?.data?.data?.password
+      if (pwd) {
+        setSecurities(prev => prev.map(s => s._id === u._id ? { ...s, generatedPassword: pwd } : s))
+        toast.success('Password revealed')
+      } else {
+        toast.error('No stored password found')
+      }
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        toast('No stored generated password found for this user. You can send a password reset notification to the user instead.', { icon: 'ℹ️' })
+      } else {
+        console.error('Failed to reveal password', err)
+        toast.error(err.response?.data?.message || 'Failed to reveal password')
+      }
+    }
+  }
+
+  const triggerReset = async (u) => {
+    if (!u || !u._id) return
+    try {
+      await userService.resetPassword('security', u._id)
+      toast.success('Password reset requested and user notified')
+    } catch (err) {
+      console.error('Reset request failed', err)
+      toast.error(err.response?.data?.message || 'Failed to request password reset')
+    }
+  }
   useEffect(() => { if (currentUser && currentUser.role !== 'admin') navigate('/') }, [currentUser, navigate])
 
   return (
@@ -252,14 +283,24 @@ export default function SecurityManagement() {
                         {/* removed employee id / designation / shift columns */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
                           {currentUser?.role === 'admin' ? (
-                            u.generatedPassword ? (
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm text-amber-700 dark:text-amber-300">{u.generatedPassword}</span>
-                                <button onClick={() => copyPassword(u.generatedPassword)} title="Copy password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
-                                  <ClipboardDocumentIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
-                                </button>
-                              </div>
-                            ) : <span className="text-sm text-slate-500">—</span>
+                            <div className="flex items-center gap-2">
+                              {u.generatedPassword ? (
+                                <>
+                                  <span className="font-mono text-sm text-amber-700 dark:text-amber-300">{u.generatedPassword}</span>
+                                  <button onClick={() => copyPassword(u.generatedPassword)} title="Copy password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                                    <ClipboardDocumentIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-sm text-slate-500">—</span>
+                              )}
+                                <button onClick={() => revealPassword(u)} title="Reveal stored password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                                <EyeIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                              </button>
+                              <button onClick={() => triggerReset(u)} title="Request password reset" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                                <ArrowPathIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                              </button>
+                            </div>
                           ) : <span className="text-sm text-slate-500">Hidden</span>}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">

@@ -131,6 +131,21 @@ export const writeLimiter = rateLimit({
 });
 
 /**
+ * Parent public approve limiter
+ * Stricter: 10 requests per hour per IP for OTP-based approvals
+ */
+export const parentPublicApproveLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // Limit each IP to 10 public OTP approval attempts per hour
+  message: 'Too many parent approval attempts from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skipSuccessfulRequests: false,
+  skipFailedRequests: false,
+});
+
+/**
  * Health Check Rate Limiter (Very Lenient)
  * Limits: 60 requests per minute per IP
  * Applied to /health endpoint

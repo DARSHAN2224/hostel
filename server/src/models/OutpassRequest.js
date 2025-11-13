@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { Buffer } from 'buffer'
 import { OUTPASS_STATUS, OUTPASS_TYPES } from '../utils/constants.js'
 
 const outpassRequestSchema = new mongoose.Schema({
@@ -117,6 +118,13 @@ const outpassRequestSchema = new mongoose.Schema({
     approved: {
       type: Boolean,
       default: false
+    },
+    // OTP for parent verification (persisted when a parent verification is requested)
+    otp: {
+      type: String
+    },
+    otpExpiresAt: {
+      type: Date
     },
     approvedAt: Date,
     parentContact: String,
@@ -255,26 +263,30 @@ outpassRequestSchema.virtual('studentName').get(function() {
   return null
 })
 
-// Pre-save middleware to generate request ID
-outpassRequestSchema.pre('save', async function(next) {
-  if (this.isNew) {
-    const date = new Date()
-    const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '')
-    
-    // Find the last request for today
-    const lastRequest = await this.constructor
-      .findOne({ requestId: new RegExp(`^OUT${dateStr}`) })
-      .sort({ requestId: -1 })
-    
-    let sequence = 1
-    if (lastRequest) {
-      const lastSequence = parseInt(lastRequest.requestId.slice(-4))
-      sequence = lastSequence + 1
+// Pre-validate middleware to generate request ID (must exist before schema validation)
+outpassRequestSchema.pre('validate', async function(next) {
+  try {
+    if (this.isNew) {
+      const date = new Date()
+      const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '')
+
+      // Find the last request for today and increment sequence
+      const lastRequest = await this.constructor
+        .findOne({ requestId: new RegExp(`^OUT${dateStr}`) })
+        .sort({ requestId: -1 })
+
+      let sequence = 1
+      if (lastRequest && lastRequest.requestId) {
+        const lastSequence = parseInt(lastRequest.requestId.slice(-4))
+        if (!Number.isNaN(lastSequence)) sequence = lastSequence + 1
+      }
+
+      this.requestId = `OUT${dateStr}${sequence.toString().padStart(4, '0')}`
     }
-    
-    this.requestId = `OUT${dateStr}${sequence.toString().padStart(4, '0')}`
+    next()
+  } catch (err) {
+    next(err)
   }
-  next()
 })
 
 // Pre-save middleware to set overnight flag

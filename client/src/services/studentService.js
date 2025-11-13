@@ -92,7 +92,9 @@ export const studentService = {
    * @returns {Promise}
    */
   update: async (id, data) => {
-    return await apiClient.patch(`${API_ENDPOINTS.STUDENTS}/${id}`, data)
+    // Use the generic managed users endpoint so admin edits (role-aware) are handled
+    // by the server's /users/:role/:id handler which accepts role-specific fields.
+    return await apiClient.patch(`${API_ENDPOINTS.USERS}/student/${id}`, data)
   },
 
   /**

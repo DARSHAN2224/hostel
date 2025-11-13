@@ -1,6 +1,7 @@
 import express from 'express';
 import outpassController from '../controllers/outpassController.js';
 import authMiddleware from '../middleware/auth.js';
+import { parentPublicApproveLimiter, readLimiter } from '../middleware/rateLimiter.js'
 
 const router = express.Router();
 
@@ -24,6 +25,21 @@ router.post('/hod/approve/:requestId', authMiddleware, outpassController.hodAppr
 
 // HOD dashboard: get pending outpass requests for department
 router.get('/hod/dashboard', authMiddleware, outpassController.getHodDashboard);
+
+// Request parent OTP (warden/admin)
+router.post('/parent/request-otp/:requestId', authMiddleware, outpassController.requestParentOtp);
+
+// Warden: send to HOD for approval
+router.post('/warden/send-to-hod/:requestId', authMiddleware, outpassController.sendToHod);
+
+// Parent approves via OTP (parent portal) - authenticated portal (warden/admin or parent with account)
+router.post('/parent/approve/:requestId', authMiddleware, outpassController.parentApproveOutpass);
+
+// Parent approves via OTP (public/OTP-only) - rate-limited to prevent abuse (stricter)
+router.post('/parent/approve-public/:requestId', parentPublicApproveLimiter, outpassController.parentApproveOutpass);
+
+// Parent portal: after OTP approval, parent (or app) can fetch full outpass details using the short-lived token
+router.get('/parent/portal/:requestId', readLimiter, outpassController.getOutpassForParentPortal);
 
 // Get outpass history with filters (admin/warden)
 router.get('/history', authMiddleware, outpassController.getOutpassHistory);

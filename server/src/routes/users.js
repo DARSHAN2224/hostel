@@ -39,6 +39,30 @@ router.patch(
   updateUser
 )
 
+// Get single user by role/id
+router.get(
+  '/:role/:id',
+  authenticateToken,
+  authorize('admin','warden','hod'),
+  userManagementController.getUserById
+)
+
+// Retrieve stored generated credential (admin only)
+router.get(
+  '/:role/:id/credential',
+  authenticateToken,
+  authorize('admin'),
+  userManagementController.getCredential
+)
+
+// Admin reset password for a user (generate token & notify)
+router.post(
+  '/:role/:id/reset-password',
+  authenticateToken,
+  authorize('admin'),
+  userManagementController.resetPassword
+)
+
 // Delete user (admin)
 router.delete(
   '/:role/:id',

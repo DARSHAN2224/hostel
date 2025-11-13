@@ -27,6 +27,7 @@ import Badge from '../../components/ui/Badge'
 import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import studentService from '../../services/studentService'
+import userService from '../../services/userService'
 import { DEPARTMENTS, HOSTEL_BLOCKS, VALIDATION, COURSES } from '../../constants'
 
 import toast from 'react-hot-toast'
@@ -63,6 +64,8 @@ export default function StudentManagement() {
       hostelType: '',
       hostelBlock: '',
       roomNumber: '',
+      permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' },
+      emergencyContact: { name: '', phone: '', relationship: '' },
       parentDetails: {
         fatherName: '',
         motherName: '',
@@ -81,6 +84,39 @@ export default function StudentManagement() {
       navigate('/')
     }
   }, [currentUser, navigate])
+
+  const revealPassword = async (role, id) => {
+    if (!id) return
+    try {
+      const resp = await userService.getCredential(role, id)
+      const pwd = resp?.data?.password || resp?.password || resp?.data?.data?.password
+      if (pwd) {
+        setStudents(prev => prev.map(s => s._id === id ? { ...s, generatedPassword: pwd } : s))
+        toast.success('Password revealed')
+      } else {
+        toast.error('No stored password found')
+      }
+    } catch (err) {
+      // If credential not found, guide admin to use reset flow instead of showing a raw error
+      if (err?.response?.status === 404) {
+        toast('No stored generated password found for this user. You can send a password reset notification to the user instead.', { icon: 'ℹ️' })
+      } else {
+        console.error('Failed to reveal password', err)
+        toast.error(err.response?.data?.message || 'Failed to reveal password')
+      }
+    }
+  }
+
+  const triggerReset = async (role, id) => {
+    if (!id) return
+    try {
+      await userService.resetPassword(role, id)
+      toast.success('Password reset requested and user notified')
+    } catch (err) {
+      console.error('Reset request failed', err)
+      toast.error(err.response?.data?.message || 'Failed to request password reset')
+    }
+  }
 
   const fetchStudents = useCallback(async () => {
     try {
@@ -137,11 +173,22 @@ export default function StudentManagement() {
   const handleEdit = (student) => {
     setSelectedStudent(student)
     setEditData({
-      name: student.name || '',
+      firstName: student.firstName || '',
+      lastName: student.lastName || '',
       email: student.email || '',
-      registerNumber: student.registerNumber || '',
+      phone: student.phone || '',
+      rollNumber: student.rollNumber || student.registerNumber || '',
       year: student.year || '',
+      yearOfStudy: student.yearOfStudy || '',
+      course: student.course || '',
+      semester: student.semester || '',
+      department: student.department || '',
+      hostelType: student.hostelType || '',
       hostelBlock: student.hostelBlock || '',
+      roomNumber: student.roomNumber || '',
+      parentDetails: student.parentDetails || { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' },
+      permanentAddress: student.permanentAddress || { street: '', city: '', state: '', zipCode: '', country: 'India' },
+      emergencyContact: student.emergencyContact || { name: '', phone: '', relationship: '' },
       status: student.status || 'active'
     })
     setShowEditModal(true)
@@ -300,11 +347,19 @@ export default function StudentManagement() {
                 {/* Password column - admin only */}
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
                   {currentUser?.role === 'admin' ? (
-                    (student.generatedPassword || student.generated_password || student.plainPassword || student.password) ? (
-                      <span className="font-mono text-sm text-blue-700 dark:text-blue-300">{student.generatedPassword || student.generated_password || student.plainPassword || student.password}</span>
-                    ) : (
-                      <span className="text-sm text-slate-500">—</span>
-                    )
+                    <div className="flex items-center gap-2">
+                      {(student.generatedPassword || student.generated_password || student.plainPassword || student.password) ? (
+                        <span className="font-mono text-sm text-blue-700 dark:text-blue-300">{student.generatedPassword || student.generated_password || student.plainPassword || student.password}</span>
+                      ) : (
+                        <span className="text-sm text-slate-500">—</span>
+                      )}
+                      <button onClick={() => revealPassword('student', student._id)} title="Reveal stored password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                        <EyeIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                      </button>
+                      <button onClick={() => triggerReset('student', student._id)} title="Request password reset" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
+                        <ArrowPathIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                      </button>
+                    </div>
                   ) : (
                     <span className="text-sm text-slate-500">Hidden</span>
                   )}
@@ -630,6 +685,27 @@ export default function StudentManagement() {
             </Select>
             <Input label="Room Number" value={addData.student.roomNumber} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, roomNumber: e.target.value}}))} />
           </div>
+          {/* Permanent Address */}
+          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Permanent Address</div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Street" value={addData.student.permanentAddress.street} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, street: e.target.value}}}))} />
+            <Input label="City" value={addData.student.permanentAddress.city} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, city: e.target.value}}}))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="State" value={addData.student.permanentAddress.state} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, state: e.target.value}}}))} />
+            <Input label="Zip Code" value={addData.student.permanentAddress.zipCode} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, zipCode: e.target.value}}}))} />
+          </div>
+
+          {/* Emergency Contact */}
+          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Name" value={addData.student.emergencyContact.name} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, emergencyContact: {...prev.student.emergencyContact, name: e.target.value}}}))} />
+            <Input label="Phone" value={addData.student.emergencyContact.phone} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, emergencyContact: {...prev.student.emergencyContact, phone: e.target.value}}}))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Relationship" value={addData.student.emergencyContact.relationship} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, emergencyContact: {...prev.student.emergencyContact, relationship: e.target.value}}}))} />
+            <div />
+          </div>
           {/* Parent / Guardian Details */}
           <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian Details</div>
           <div className="grid grid-cols-2 gap-4">
@@ -678,7 +754,9 @@ export default function StudentManagement() {
                     hostelType: addData.student.hostelType,
                     hostelBlock: addData.student.hostelBlock,
                     roomNumber: addData.student.roomNumber,
-                    parentDetails: addData.student.parentDetails
+                    parentDetails: addData.student.parentDetails,
+                    permanentAddress: addData.student.permanentAddress,
+                    emergencyContact: addData.student.emergencyContact
                   }
                 }
                 const res = await studentService.create(payload)
@@ -705,7 +783,7 @@ export default function StudentManagement() {
                 }
 
                 setShowAddModal(false)
-                setAddData({ firstName: '', lastName: '', email: '', phone: '', student: { rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '', department: '', hostelType: '', hostelBlock: '', roomNumber: '', parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' } } })
+                setAddData({ firstName: '', lastName: '', email: '', phone: '', student: { rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '', department: '', hostelType: '', hostelBlock: '', roomNumber: '', permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' }, emergencyContact: { name: '', phone: '', relationship: '' }, parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' } } })
                 fetchStudents()
               }catch(err){
                 console.error('Failed to create student:', err)
@@ -729,20 +807,88 @@ export default function StudentManagement() {
         size="md"
       >
         <div className="space-y-4">
-          <Input label="Name" value={editData.name || ''} onChange={(e)=>setEditData(prev=>({...prev, name:e.target.value}))} />
-          <Input label="Email" type="email" value={editData.email || ''} onChange={(e)=>setEditData(prev=>({...prev, email:e.target.value}))} />
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Register Number" value={editData.registerNumber || ''} onChange={(e)=>setEditData(prev=>({...prev, registerNumber:e.target.value}))} />
-            <Input label="Year" value={editData.year || ''} onChange={(e)=>setEditData(prev=>({...prev, year:e.target.value}))} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Hostel Block" value={editData.hostelBlock || ''} onChange={(e)=>setEditData(prev=>({...prev, hostelBlock:e.target.value}))} />
-            <Select label="Status" value={editData.status || 'active'} onChange={(e)=>setEditData(prev=>({...prev, status:e.target.value}))}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
-            </Select>
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="First Name" value={editData.firstName || ''} onChange={(e)=>setEditData(prev=>({...prev, firstName:e.target.value}))} />
+                <Input label="Last Name" value={editData.lastName || ''} onChange={(e)=>setEditData(prev=>({...prev, lastName:e.target.value}))} />
+              </div>
+              <Input label="Email" type="email" value={editData.email || ''} onChange={(e)=>setEditData(prev=>({...prev, email:e.target.value}))} />
+              <Input label="Phone" type="tel" value={editData.phone || ''} onChange={(e)=>setEditData(prev=>({...prev, phone:e.target.value}))} />
+
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Register / Roll Number" value={editData.rollNumber || ''} onChange={(e)=>setEditData(prev=>({...prev, rollNumber:e.target.value}))} />
+                <Input label="Academic Year" type="number" value={editData.year || ''} onChange={(e)=>setEditData(prev=>({...prev, year:e.target.value}))} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Select label="Course" value={editData.course || ''} onChange={(e)=>setEditData(prev=>({...prev, course: e.target.value}))}>
+                  <option value="">Select Course</option>
+                  {COURSES.map(c => <option key={c} value={c}>{c}</option>)}
+                </Select>
+                <Select label="Semester" value={editData.semester || ''} onChange={(e)=>setEditData(prev=>({...prev, semester:e.target.value}))}>
+                  <option value="">Select Semester</option>
+                  {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Select label="Department" value={editData.department || ''} onChange={(e)=>setEditData(prev=>({...prev, department: e.target.value}))}>
+                  <option value="">Select Department</option>
+                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                </Select>
+                <Select label="Hostel Type" value={editData.hostelType || ''} onChange={(e)=>setEditData(prev=>({...prev, hostelType: e.target.value}))}>
+                  <option value="">Select Hostel Type</option>
+                  <option value="boys">Boys Hostel</option>
+                  <option value="girls">Girls Hostel</option>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Select label="Hostel Block" value={editData.hostelBlock || ''} onChange={(e)=>setEditData(prev=>({...prev, hostelBlock:e.target.value}))}>
+                  <option value="">Select Block</option>
+                  {HOSTEL_BLOCKS.map(b => <option key={b} value={b}>Block {b}</option>)}
+                </Select>
+                <Input label="Room Number" value={editData.roomNumber || ''} onChange={(e)=>setEditData(prev=>({...prev, roomNumber:e.target.value}))} />
+              </div>
+
+              {/* Permanent Address */}
+              <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Permanent Address</div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Street" value={editData.permanentAddress?.street || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, street: e.target.value}}))} />
+                <Input label="City" value={editData.permanentAddress?.city || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, city: e.target.value}}))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="State" value={editData.permanentAddress?.state || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, state: e.target.value}}))} />
+                <Input label="Zip Code" value={editData.permanentAddress?.zipCode || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, zipCode: e.target.value}}))} />
+              </div>
+
+              {/* Emergency Contact */}
+              <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Name" value={editData.emergencyContact?.name || ''} onChange={(e)=>setEditData(prev=>({...prev, emergencyContact: {...prev.emergencyContact, name: e.target.value}}))} />
+                <Input label="Phone" value={editData.emergencyContact?.phone || ''} onChange={(e)=>setEditData(prev=>({...prev, emergencyContact: {...prev.emergencyContact, phone: e.target.value}}))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Relationship" value={editData.emergencyContact?.relationship || ''} onChange={(e)=>setEditData(prev=>({...prev, emergencyContact: {...prev.emergencyContact, relationship: e.target.value}}))} />
+                <div />
+              </div>
+
+              <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian</div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Father's Name" value={editData.parentDetails?.fatherName || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, fatherName: e.target.value}}))} />
+                <Input label="Mother's Name" value={editData.parentDetails?.motherName || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, motherName: e.target.value}}))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Guardian Phone" value={editData.parentDetails?.guardianPhone || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, guardianPhone: e.target.value}}))} />
+                <Input label="Guardian Email" value={editData.parentDetails?.guardianEmail || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, guardianEmail: e.target.value}}))} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Select label="Status" value={editData.status || 'active'} onChange={(e)=>setEditData(prev=>({...prev, status:e.target.value}))}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                </Select>
+              </div>
           <ModalFooter>
             <Button variant="ghost" onClick={()=>setShowEditModal(false)}>Cancel</Button>
             <Button variant="primary" onClick={saveEdit}>Save</Button>

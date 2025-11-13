@@ -207,12 +207,22 @@ wardenSchema.virtual('fullName').get(function() {
 
 // Virtual for primary hostel block
 wardenSchema.virtual('primaryHostelBlock').get(function() {
-  return this.assignedHostelBlocks.find(block => block.isPrimary)
+  if (!Array.isArray(this.assignedHostelBlocks)) return null
+  return this.assignedHostelBlocks.find(block => block && block.isPrimary)
 })
 
 // Virtual for total rooms managed
 wardenSchema.virtual('totalRoomsManaged').get(function() {
-  return this.assignedHostelBlocks.reduce((total, block) => total + (block.totalRooms || 0), 0)
+  if (!Array.isArray(this.assignedHostelBlocks)) return 0
+  return this.assignedHostelBlocks.reduce((total, block) => total + ((block && block.totalRooms) || 0), 0)
+})
+
+// Virtual for assigned students count (populated via virtual populate/count)
+wardenSchema.virtual('assignedStudentsCount', {
+  ref: 'Student',
+  localField: '_id',
+  foreignField: 'wardenId',
+  count: true
 })
 
 // Virtual for years of service

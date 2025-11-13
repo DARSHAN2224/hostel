@@ -1,6 +1,6 @@
 import { useSelector } from 'react-redux'
 import { Navigate, useLocation } from 'react-router-dom'
-import { STORAGE_KEYS } from '../constants'
+import { STORAGE_KEYS, ROUTES } from '../constants'
 import { selectUser } from '../store/authSlice'
 
 const ProtectedRoute = ({ children }) => {
@@ -31,9 +31,25 @@ const ProtectedRoute = ({ children }) => {
   }
 
   // If authenticated or has valid tokens, render the protected component
-  // Enforce forced password change: if user's mustChangePassword flag is set, redirect to settings
+  // Enforce forced password change: if user's mustChangePassword flag is set,
+  // redirect to settings unless the user is already on the settings page
+  // (prevents a redirect loop which causes a blank page)
   if (user?.mustChangePassword) {
-    return <Navigate to="/settings" replace />
+    // Debug: log user and localStorage state to help trace unexpected redirects
+    try {
+      console.log('[ProtectedRoute] user.mustChangePassword:', user?.mustChangePassword, 'user:', user)
+      const stored = localStorage.getItem(STORAGE_KEYS.USER_DATA)
+      console.log('[ProtectedRoute] localStorage userData:', stored)
+    } catch {
+      // ignore
+    }
+
+    const currentPath = location?.pathname || ''
+    // allow access to settings page so the user can change their password
+    if (currentPath !== ROUTES.SETTINGS && currentPath !== (ROUTES.PROFILE || '/profile')) {
+      console.log('[ProtectedRoute] redirecting to SETTINGS from', currentPath)
+      return <Navigate to={ROUTES.SETTINGS} replace />
+    }
   }
 
   return children

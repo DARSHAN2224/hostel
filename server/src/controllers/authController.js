@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
-import { Student, Warden, Admin, Security } from '../models/index.js'
+import { Student, Warden, Admin, Security, Credential, AuditLog } from '../models/index.js'
 import { AppError } from '../middleware/errorHandler.js'
 import { HOSTEL_BLOCKS, HOSTEL_TYPES } from '../utils/constants.js'
 import generateVerificationCode from '../utils/generateVerificationCode.js'
@@ -276,13 +276,35 @@ export const changePassword = asyncHandler(async (req, res, next) => {
   // Clear any forced-change flag when user updates their password
   if (user.mustChangePassword) user.mustChangePassword = false
   await user.save()
-
+  
+  // Remove any stored generated credentials for this user (security: stale plaintext)
+  try {
+    await Credential.deleteMany({ userId: user._id })
+    try {
+      await AuditLog.logAction({
+        user: user._id, // user performed own password change
+        userModel: user.role ? (user.role.charAt(0).toUpperCase() + user.role.slice(1)) : undefined,
+        action: 'update',
+        resource: 'password',
+        resourceId: user._id,
+        details: { reason: 'user_changed_password' },
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+        userAgent: req.headers['user-agent'] || undefined,
+        status: 'success'
+      })
+    } catch (auditErr) {
+      console.warn('Failed to write audit log for user password change:', auditErr)
+    }
+  } catch (delErr) {
+    console.warn('Failed to delete stored credentials after password change:', delErr)
+  }
   // Send password changed confirmation email (non-critical, won't throw)
   const displayName = user.name || user.firstName || 'User'
   await sendPasswordChangedEmail(user.email, displayName)
 
+  // Return the updated user so clients can refresh state immediately
   res.json(
-    new ApiResponse(200, null, 'Password changed successfully')
+    new ApiResponse(200, { user: user.toJSON(), mustChangePassword: user.mustChangePassword || false }, 'Password changed successfully')
   )
 })
 
@@ -413,6 +435,28 @@ export const resetPassword = asyncHandler(async (req, res, next) => {
   // Clear mustChangePassword for password reset flows
   if (user.mustChangePassword) user.mustChangePassword = false
   await user.save()
+
+  // Remove any stored generated credentials for this user (stale plaintext)
+  try {
+    await Credential.deleteMany({ userId: user._id })
+    try {
+      await AuditLog.logAction({
+        user: user._id,
+        userModel: user.role ? (user.role.charAt(0).toUpperCase() + user.role.slice(1)) : undefined,
+        action: 'update',
+        resource: 'password',
+        resourceId: user._id,
+        details: { reason: 'password_reset_via_token' },
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+        userAgent: req.headers['user-agent'] || undefined,
+        status: 'success'
+      })
+    } catch (auditErr) {
+      console.warn('Failed to write audit log for password reset:', auditErr)
+    }
+  } catch (delErr) {
+    console.warn('Failed to delete stored credentials after password reset:', delErr)
+  }
 
   // Send confirmation email (non-critical)
   const displayName = user.name || user.firstName || 'User';
