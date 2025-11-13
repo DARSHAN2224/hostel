@@ -33,7 +33,9 @@ export const createInitialAdmin = async () => {
         lastName: 'Admin',
         phone: '9999999999',
         role: 'admin',
-        adminRole: 'super_admin',
+        // Use a sensible default adminRole that grants system-level access.
+        // We avoid creating or requiring a separate 'super_admin' role.
+        adminRole: 'system_admin',
         isEmailVerified: true,
         isActive: true
       })

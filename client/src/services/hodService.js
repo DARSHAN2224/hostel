@@ -97,6 +97,14 @@ export const hodService = {
   updateProfile: async (data) => {
     return await apiClient.put('/hods/profile', data)
   }
+  ,
+  /**
+   * Delete a HOD (admin)
+   * @param {string} hodId
+   */
+  delete: async (hodId) => {
+    return await apiClient.delete(`/hods/delete/${hodId}`)
+  }
 }
 
 export const {

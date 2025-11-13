@@ -5,14 +5,18 @@ import Hod from '../models/Hod.js';
 import bcrypt from 'bcryptjs';
 import generateVerificationCode from '../utils/generateVerificationCode.js'
 import { sendVerificationEmail, sendNotificationEmail } from '../services/emailService.js'
+import { Credential, AuditLog } from '../models/index.js'
 import { ApiResponse } from '../utils/ApiResponse.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { AppError } from '../middleware/errorHandler.js'
 
 const hodController = {
   // Create HOD (Super Admin only)
+
   createHod: asyncHandler(async (req, res, next) => {
-    if (req.user.role !== 'super_admin') {
+    // Only admins are allowed to create HODs. The system no longer
+    // differentiates 'super_admin' — plain 'admin' is sufficient.
+    if (req.user.role !== 'admin') {
       return next(new AppError('Forbidden', 403))
     }
 
@@ -70,6 +74,27 @@ const hodController = {
       } catch (e) {
         console.warn('Failed to send HOD credentials email:', e)
       }
+      // Persist generated credential for admin retrieval and audit it.
+      try {
+        const cred = await Credential.create({ userId: hod._id, role: 'hod', password: generatedPassword })
+        try {
+          await AuditLog.logAction({
+            user: req.user?.id,
+            userModel: req.user?.role ? (req.user.role.charAt(0).toUpperCase() + req.user.role.slice(1)) : 'Admin',
+            action: 'create',
+            resource: 'credential',
+            resourceId: String(cred._id),
+            details: { targetUserId: String(hod._id), role: 'hod' },
+            ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+            userAgent: req.headers['user-agent'] || undefined,
+            status: 'success'
+          })
+        } catch (auditErr) {
+          console.warn('Failed to write audit log for HOD credential persistence:', auditErr)
+        }
+      } catch (credErr) {
+        console.warn('Failed to persist generated credential for HOD:', credErr)
+      }
     }
 
     // Send verification email
@@ -84,7 +109,8 @@ const hodController = {
 
   // Edit HOD (Super Admin only)
   editHod: asyncHandler(async (req, res, next) => {
-    if (req.user.role !== 'super_admin') {
+    // Allow regular admins to edit HODs
+    if (req.user.role !== 'admin') {
       return next(new AppError('Forbidden', 403))
     }
 
@@ -113,8 +139,23 @@ const hodController = {
     const hod = await Hod.findOne({ email }).select('+password')
     if (!hod) return next(new AppError('Invalid credentials', 401))
 
-    // Require email verification for HODs
-    if (!hod.isEmailVerified) return next(new AppError('Please verify your email to continue.', 403))
+    // Require email verification for HODs. If not verified, generate and send
+    // a verification code and instruct the user to verify first.
+    if (!hod.isEmailVerified) {
+      const verificationCode = generateVerificationCode()
+      const verificationExpires = new Date(Date.now() + 10 * 60 * 1000)
+      hod.emailVerificationToken = verificationCode
+      hod.emailVerificationExpires = verificationExpires
+      await hod.save({ validateBeforeSave: false })
+
+      try {
+        await sendVerificationEmail(hod.email, hod.name || hod.firstName || 'HOD', verificationCode)
+      } catch (emailErr) {
+        console.warn('Failed to send verification email to HOD during login attempt:', emailErr)
+      }
+
+      return next(new AppError('Please verify your email to continue. A verification email has been sent.', 403))
+    }
 
     const valid = await bcrypt.compare(password, hod.password)
     if (!valid) return next(new AppError('Invalid credentials', 401))
@@ -159,7 +200,8 @@ const hodController = {
 
   // Delete HOD (Super Admin only)
   deleteHod: asyncHandler(async (req, res, next) => {
-    if (req.user.role !== 'super_admin') return next(new AppError('Forbidden', 403))
+  // Allow regular admins to delete HODs
+  if (req.user.role !== 'admin') return next(new AppError('Forbidden', 403))
 
     const { hodId } = req.params
     const hod = await Hod.findByIdAndDelete(hodId)

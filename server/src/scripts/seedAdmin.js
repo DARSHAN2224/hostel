@@ -56,7 +56,8 @@ const seedAdmin = async () => {
       lastName: 'Admin',
       phone: '9999999999',
       role: 'admin',
-      adminRole: 'superadmin',
+      // assign a system-level admin role (avoid using 'super_admin')
+      adminRole: 'system_admin',
       isEmailVerified: true, // Skip email verification for initial admin
       isActive: true
     }
@@ -65,8 +66,8 @@ const seedAdmin = async () => {
     const salt = await bcrypt.genSalt(12)
     adminData.password = await bcrypt.hash(adminData.password, salt)
 
-    // Update admin role
-    adminData.adminRole = 'super_admin'
+  // Ensure adminRole is set to a system-level admin role
+  adminData.adminRole = 'system_admin'
 
     // Create admin
     const admin = await Admin.create(adminData)

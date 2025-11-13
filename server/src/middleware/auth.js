@@ -1,20 +1,21 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
 import { UnauthorizedError } from '../utils/customErrors.js'
+import { Student, Warden, Admin, Security, Hod } from '../models/index.js'
 
 /**
  * Auth middleware to verify JWT tokens from cookies or Authorization header
  */
-export const authenticateToken = (req, res, next) => {
+export const authenticateToken = async (req, res, next) => {
   try {
     // Try to get token from Authorization header first, then from cookies
     let token = null
-    
+
     const authHeader = req.headers.authorization
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.substring(7)
-    } else if (req.cookies?.access_token) {
-      token = req.cookies.access_token
+    } else if (req.cookies?.access_token || req.cookies?.accessToken) {
+      token = req.cookies.access_token || req.cookies.accessToken
     }
 
     if (!token) {
@@ -23,12 +24,58 @@ export const authenticateToken = (req, res, next) => {
 
     // Verify the token
     const decoded = jwt.verify(token, config.jwt.secret)
-    
-    // Add user info to request object
+
+    // Add user info to request object. Preserve additional fields present
+    // in the token (e.g. adminRole, permissions, reportAccess, department)
+    // so controllers can make fine-grained authorization decisions.
     req.user = {
       id: decoded.id,
       email: decoded.email,
-      role: decoded.role
+      role: decoded.role,
+      ...(decoded.adminRole ? { adminRole: decoded.adminRole } : {}),
+      ...(decoded.permissions ? { permissions: decoded.permissions } : {}),
+      ...(decoded.reportAccess ? { reportAccess: decoded.reportAccess } : {}),
+      ...(decoded.department ? { department: decoded.department } : {})
+    }
+
+    // Enforce mustChangePassword: if the user is required to change password
+    // on first login (admin-generated password), block access to application
+    // routes until they change password. Allow only a small set of auth routes.
+    const allowedPathsWhileMustChange = [
+      '/api/v1/auth/change-password',
+      '/api/v1/auth/verify-email',
+      '/api/v1/auth/logout',
+      '/api/v1/auth/refresh',
+      '/api/v1/auth/reset-password'
+    ]
+
+    // Find the user document across possible models to check mustChangePassword
+    const id = decoded.id
+    const Models = [Student, Warden, Admin, Security, Hod]
+    let found = null
+    for (const M of Models) {
+      try {
+        // select only necessary fields
+        const doc = await M.findById(id).select('mustChangePassword isEmailVerified status')
+        if (doc) { found = doc; break }
+      } catch {
+        // ignore and continue
+      }
+    }
+
+    if (found) {
+      // Block inactive accounts
+      if (typeof found.status !== 'undefined' && found.status !== 'active') {
+        return res.status(403).json({ success: false, statusCode: 403, message: 'Account is not active', data: null })
+      }
+
+      if (found.mustChangePassword) {
+  const path = req.path || ''
+        const isAllowed = allowedPathsWhileMustChange.some(p => path.startsWith(p))
+        if (!isAllowed) {
+          return res.status(403).json({ success: false, statusCode: 403, message: 'Password change required. Please change your password before accessing the application.', data: null })
+        }
+      }
     }
 
     next()
@@ -41,7 +88,7 @@ export const authenticateToken = (req, res, next) => {
         data: null
       })
     }
-    
+
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({ 
         success: false,

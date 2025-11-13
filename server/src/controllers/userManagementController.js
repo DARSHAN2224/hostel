@@ -1,5 +1,6 @@
 import { Student, Warden, Admin, Security, Parent, Credential, AuditLog } from '../models/index.js'
 import Hod from '../models/Hod.js'
+import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { AppError } from '../middleware/errorHandler.js'
@@ -320,7 +321,23 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     // Persist generated password for admin retrieval if it was generated
     if (generatedPassword) {
       try {
-        await Credential.create({ userId: user._id, role, password: generatedPassword })
+        const cred = await Credential.create({ userId: user._id, role, password: generatedPassword })
+        try {
+          // Audit the creation/persistence of a plaintext generated credential
+          await AuditLog.logAction({
+            user: req.user?.id,
+            userModel: req.user?.role ? (req.user.role.charAt(0).toUpperCase() + req.user.role.slice(1)) : 'Admin',
+            action: 'create',
+            resource: 'credential',
+            resourceId: String(cred._id),
+            details: { targetUserId: String(user._id), role },
+            ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+            userAgent: req.headers['user-agent'] || undefined,
+            status: 'success'
+          })
+        } catch (auditErr) {
+          console.warn('Failed to write audit log for credential persistence:', auditErr)
+        }
       } catch (credErr) {
         console.warn('Failed to persist generated credential:', credErr)
       }
@@ -470,8 +487,78 @@ export const getCredential = asyncHandler(async (req, res, next) => {
   if (!role || !id) return next(new AppError('role and id are required', 400))
 
   // Only admins can retrieve stored generated credentials. Explicitly select the password field.
-  const cred = await Credential.findOne({ userId: id, role }).select('+password')
-  if (!cred) return next(new AppError('Credential not found', 404))
+  let cred = await Credential.findOne({ userId: id, role }).select('+password')
+
+  // If no stored credential exists (older records or pre-change users), generate a
+  // one-time credential, persist it, set the user's mustChangePassword flag and
+  // update the user's hashed password so the admin-provided credential is usable.
+  if (!cred) {
+    // Validate role and model
+    const UserModel = ModelMap[role]
+    if (!UserModel) return next(new AppError('Invalid role', 400))
+
+    // Find the user to ensure exists
+    const user = await UserModel.findById(id).select('+password')
+    if (!user) return next(new AppError('User not found', 404))
+
+    // Helper to generate a compliant random password
+    const generateRandomPassword = (len = 10) => {
+      const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      const lower = 'abcdefghijklmnopqrstuvwxyz'
+      const digits = '0123456789'
+      const all = upper + lower + digits
+      let pw = ''
+      pw += upper[Math.floor(Math.random() * upper.length)]
+      pw += lower[Math.floor(Math.random() * lower.length)]
+      pw += digits[Math.floor(Math.random() * digits.length)]
+      for (let i = 3; i < len; i++) pw += all[Math.floor(Math.random() * all.length)]
+      return pw.split('').sort(() => 0.5 - Math.random()).join('')
+    }
+
+    const generatedPassword = generateRandomPassword(10)
+    const hashed = await bcrypt.hash(generatedPassword, 10)
+
+    // Update user's hashed password and require change on next login
+    try {
+      user.password = hashed
+      user.mustChangePassword = true
+      await user.save()
+    } catch (updErr) {
+      console.warn('Failed to update user password while generating admin credential:', updErr)
+      return next(new AppError('Failed to generate credential', 500))
+    }
+
+    // Persist the plaintext credential for admin retrieval (audited)
+    try {
+      cred = await Credential.create({ userId: id, role, password: generatedPassword })
+      try {
+        await AuditLog.logAction({
+          user: req.user?.id,
+          userModel: req.user?.role ? (req.user.role.charAt(0).toUpperCase() + req.user.role.slice(1)) : 'Admin',
+          action: 'create',
+          resource: 'credential',
+          resourceId: String(cred._id),
+          details: { targetUserId: String(id), role },
+          ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
+          userAgent: req.headers['user-agent'] || undefined,
+          status: 'success'
+        })
+      } catch (auditErr) {
+        console.warn('Failed to write audit log for generated credential:', auditErr)
+      }
+    } catch (credErr) {
+      console.warn('Failed to persist generated credential:', credErr)
+      return next(new AppError('Failed to persist generated credential', 500))
+    }
+
+    // Try to notify the user about the new credentials (best-effort)
+    try {
+      const credText = `An administrator generated a temporary password for your account.\nEmail: ${user.email}\nPassword: ${generatedPassword}\nPlease login and change your password immediately.`
+      await sendNotificationEmail(user.email, 'Temporary credentials - Hostel Management', credText, `<p>${credText.replace(/\n/g, '<br/>')}</p>`)
+    } catch (emailErr) {
+      console.warn('Failed to send generated credential notification email:', emailErr)
+    }
+  }
 
   // Create an audit log entry for credential retrieval
   try {

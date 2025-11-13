@@ -72,7 +72,8 @@ export const registerInitialAdmin = asyncHandler(async (req, res, next) => {
     lastName,
     phone,
     role: 'admin',
-    adminRole: 'super_admin',
+    // Single admin role model: use a system-level adminRole instead of 'super_admin'
+    adminRole: 'system_admin',
     isEmailVerified: true, // Skip email verification for initial admin
   })
 

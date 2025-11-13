@@ -235,12 +235,13 @@ export default function HODManagement() {
 
   const confirmDelete = async () => {
     try {
-      // TODO: Implement API call
-      // await hodService.delete(selectedHOD._id)
-      toast.success(`HOD ${selectedHOD.name} deleted successfully`)
+      if (!selectedHOD?._id) throw new Error('No HOD selected')
+      await hodService.delete(selectedHOD._id)
+      // Remove from local list immediately for snappy UX
+      setHods(prev => prev.filter(h => h._id !== selectedHOD._id))
+      toast.success(`HOD ${getFullName(selectedHOD) || selectedHOD.email} deleted successfully`)
       setShowDeleteModal(false)
       setSelectedHOD(null)
-      fetchHODs()
     } catch (err) {
       console.error('Failed to delete HOD:', err)
       let msg = err.response?.data?.message || 'Failed to delete HOD';

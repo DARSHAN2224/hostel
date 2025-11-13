@@ -297,7 +297,8 @@ adminSchema.pre('save', function(next) {
   if (this.isNew || this.isModified('adminRole')) {
     switch (this.adminRole) {
       case ADMIN_ROLES.SUPER_ADMIN:
-        // Super admin gets all permissions
+      case ADMIN_ROLES.SYSTEM_ADMIN:
+        // Super/system admin gets all permissions
         Object.keys(this.permissions.toObject()).forEach(key => {
           this.permissions[key] = true
         })
@@ -326,12 +327,7 @@ adminSchema.pre('save', function(next) {
         this.reportAccess.canViewSecurityReports = true
         break
         
-      case ADMIN_ROLES.SYSTEM_ADMIN:
-        this.permissions.canManageSystem = true
-        this.permissions.canViewLogs = true
-        this.permissions.canModifySettings = true
-        this.reportAccess.canViewSystemReports = true
-        break
+      
     }
   }
   next()
