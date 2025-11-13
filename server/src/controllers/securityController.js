@@ -1,5 +1,5 @@
 import asyncHandler from 'express-async-handler'
-import { OutpassRequest, Student, Violation } from '../models/index.js'
+import { OutpassRequest, Student, Violation, OutpassLog } from '../models/index.js'
 import { ApiResponse } from '../utils/ApiResponse.js'
 
 /**
@@ -135,8 +135,26 @@ export const verifyOutpass = asyncHandler(async (req, res) => {
     return res.status(400).json(new ApiResponse(400, null, 'Verification code is required'))
   }
 
-  // Find outpass by ID (code could be the outpass ID)
-  const outpass = await OutpassRequest.findById(code).populate('student', 'firstName lastName rollNumber hostelBlock phoneNumber profilePicture')
+  // Accept either direct outpassId/requestId or a QR code (base64 JSON)
+  let outpass = null
+  // Try to parse as base64 QR payload
+  if (typeof code === 'string' && code.includes('==')) {
+    try {
+      const decoded = Buffer.from(code, 'base64').toString('utf8')
+      const payload = JSON.parse(decoded)
+      // payload may contain requestId or outpassId
+      if (payload.requestId) {
+        outpass = await OutpassRequest.findOne({ requestId: payload.requestId }).populate('student', 'firstName lastName rollNumber hostelBlock phoneNumber profilePicture')
+      }
+    } catch (err) {
+      // not a JSON base64, continue
+    }
+  }
+
+  // Fallback: try by id or requestId
+  if (!outpass) {
+    outpass = await OutpassRequest.findOne({ $or: [{ _id: code }, { requestId: code }] }).populate('student', 'firstName lastName rollNumber hostelBlock phoneNumber profilePicture')
+  }
 
   if (!outpass) {
     return res.status(404).json(new ApiResponse(404, null, 'Outpass not found'))
@@ -149,8 +167,20 @@ export const verifyOutpass = asyncHandler(async (req, res) => {
 
   // Check if outpass is within valid date range
   const now = new Date()
-  if (now < outpass.fromDate) {
+  if (outpass.fromDate && now < outpass.fromDate) {
     return res.status(400).json(new ApiResponse(400, null, 'Outpass is not yet valid'))
+  }
+
+  // Create or update an OutpassLog record for security tracking
+  try {
+    let log = await OutpassLog.findOne({ outpassRequest: outpass._id })
+    if (!log) {
+      log = await OutpassLog.createFromOutpassRequest(outpass)
+    }
+    log.qrCodeUsed = true
+    await log.save()
+  } catch (logErr) {
+    console.warn('Failed to create/update OutpassLog on verify:', logErr && logErr.message ? logErr.message : logErr)
   }
 
   res.json(new ApiResponse(200, outpass, 'Outpass verified successfully'))
@@ -184,6 +214,15 @@ export const recordExit = asyncHandler(async (req, res) => {
   if (remarks) outpass.exitRemarks = remarks
 
   await outpass.save()
+
+  // Create or update outpass log
+  try {
+    let log = await OutpassLog.findOne({ outpassRequest: outpass._id })
+    if (!log) log = await OutpassLog.createFromOutpassRequest(outpass)
+    await log.recordExit({ securityId: req.user.id, securityName: req.user.firstName + ' ' + (req.user.lastName || '') }, { gateName: req.body.gateName || 'Main Gate', notes: remarks || '', qrCodeUsed: !!req.body.qrCode })
+  } catch (logErr) {
+    console.warn('Failed to create/update OutpassLog on exit:', logErr && logErr.message ? logErr.message : logErr)
+  }
 
   res.json(new ApiResponse(200, outpass, 'Exit recorded successfully'))
 })
@@ -243,6 +282,15 @@ export const recordReturn = asyncHandler(async (req, res) => {
 
   outpass.status = 'completed'
   await outpass.save()
+
+  // Update outpass log with return info
+  try {
+    let log = await OutpassLog.findOne({ outpassRequest: outpass._id })
+    if (!log) log = await OutpassLog.createFromOutpassRequest(outpass)
+    await log.recordReturn({ securityId: req.user.id, securityName: req.user.firstName + ' ' + (req.user.lastName || '') }, { gateName: req.body.gateName || 'Main Gate', notes: remarks || '' })
+  } catch (logErr) {
+    console.warn('Failed to create/update OutpassLog on return:', logErr && logErr.message ? logErr.message : logErr)
+  }
 
   res.json(new ApiResponse(200, outpass, 'Return recorded successfully'))
 })

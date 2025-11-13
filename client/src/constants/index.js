@@ -167,6 +167,7 @@ export const ROUTES = {
   REPORTS: '/reports',
   SETTINGS: '/settings',
   PROFILE: '/profile',
+  SECURITY_SCAN: '/security/scan',
   NOT_FOUND: '/404'
 }
 

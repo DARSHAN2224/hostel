@@ -21,6 +21,7 @@ import OutpassManagement from './pages/outpass/OutpassManagement'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import SecurityDashboard from './pages/security/SecurityDashboard'
 import SecurityManagement from './pages/security/SecurityManagement'
+import SecurityScanner from './pages/security/SecurityScanner'
 import HODDashboard from './pages/hod/HODDashboard'
 import Settings from './pages/settings/Settings'
 import OutpassHistory from './pages/history/OutpassHistory'
@@ -219,6 +220,16 @@ function App() {
                   <SecurityDashboard />
                 </ProtectedRoute>
               } 
+            />
+            <Route
+              path="/security/scan"
+              element={
+                <ProtectedRoute>
+                  <RoleBasedRoute allowedRoles={[ 'security' , 'admin']}>
+                    <SecurityScanner />
+                  </RoleBasedRoute>
+                </ProtectedRoute>
+              }
             />
             <Route 
               path="/security"

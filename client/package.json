@@ -24,6 +24,7 @@
     "jspdf": "^3.0.3",
     "prop-types": "^15.8.1",
     "qrcode": "^1.5.4",
+    "qr-scanner": "^1.4.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.66.0",

@@ -660,6 +660,44 @@ export default function OutpassManagement() {
               </p>
             </div>
 
+            {/* QR / Copy payload actions */}
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mr-2">Test helpers:</p>
+              <button
+                className="px-3 py-1 bg-gray-100 rounded text-sm"
+                onClick={async () => {
+                  try {
+                    const text = selectedOutpass._id || selectedOutpass.requestId || ''
+                    if (!text) throw new Error('No request id available')
+                    await navigator.clipboard.writeText(text)
+                    toast.success('requestId copied to clipboard')
+                  } catch (err) {
+                    toast.error('Failed to copy requestId')
+                  }
+                }}
+              >
+                Copy requestId
+              </button>
+
+              <button
+                className="px-3 py-1 bg-gray-100 rounded text-sm"
+                onClick={async () => {
+                  try {
+                    const requestId = selectedOutpass._id || selectedOutpass.requestId
+                    if (!requestId) throw new Error('No request id')
+                    const payload = { requestId }
+                    const encoded = typeof window !== 'undefined' && window.btoa ? window.btoa(JSON.stringify(payload)) : Buffer.from(JSON.stringify(payload)).toString('base64')
+                    await navigator.clipboard.writeText(encoded)
+                    toast.success('QR payload (base64) copied to clipboard')
+                  } catch (err) {
+                    toast.error('Failed to copy QR payload')
+                  }
+                }}
+              >
+                Copy QR payload
+              </button>
+            </div>
+
             <ModalFooter>
               <Button variant="ghost" onClick={() => setShowViewModal(false)}>
                 Close
