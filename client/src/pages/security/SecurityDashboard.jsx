@@ -171,10 +171,12 @@ export default function SecurityDashboard() {
   const handleConfirmAction = async () => {
     try {
       if (actionType === 'exit') {
-        await outpassService.recordExit(selectedOutpass._id)
+        console.debug('security.recordExit - outpassId', selectedOutpass._id)
+        await securityService.recordExit(selectedOutpass._id)
         toast.success(`Exit recorded for ${selectedOutpass.student.firstName} ${selectedOutpass.student.lastName}`)
       } else {
-        await outpassService.recordReturn(selectedOutpass._id)
+        console.debug('security.recordReturn - outpassId', selectedOutpass._id)
+        await securityService.recordReturn(selectedOutpass._id)
         toast.success(`Return recorded for ${selectedOutpass.student.firstName} ${selectedOutpass.student.lastName}`)
       }
       
