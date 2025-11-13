@@ -92,13 +92,19 @@ export const getWardenDashboardStats = asyncHandler(async (req, res) => {
   }
 
   // Get total students in assigned blocks
+  const assignedBlocks = Array.isArray(warden.assignedHostelBlocks)
+    ? warden.assignedHostelBlocks.map(b => (typeof b === 'string' ? b : (b.blockName || b.hostelBlock))).filter(Boolean)
+    : []
+
   const totalStudents = await Student.countDocuments({
-    hostelBlock: { $in: warden.assignedHostelBlocks },
+    hostelBlock: { $in: assignedBlocks },
   })
 
   // Get pending outpass requests
+  const studentIdsForBlocks = await Student.find({ hostelBlock: { $in: assignedBlocks } }).distinct('_id')
+
   const pendingOutpasses = await OutpassRequest.countDocuments({
-    student: { $in: await Student.find({ hostelBlock: { $in: warden.assignedHostelBlocks } }).distinct('_id') },
+    student: { $in: studentIdsForBlocks },
     wardenApprovalStatus: 'pending',
   })
 
@@ -106,14 +112,14 @@ export const getWardenDashboardStats = asyncHandler(async (req, res) => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const approvedToday = await OutpassRequest.countDocuments({
-    student: { $in: await Student.find({ hostelBlock: { $in: warden.assignedHostelBlocks } }).distinct('_id') },
+    student: { $in: studentIdsForBlocks },
     wardenApprovalStatus: 'approved',
     wardenApprovalDate: { $gte: today },
   })
 
   // Get students currently out
   const studentsOut = await OutpassRequest.countDocuments({
-    student: { $in: await Student.find({ hostelBlock: { $in: warden.assignedHostelBlocks } }).distinct('_id') },
+    student: { $in: studentIdsForBlocks },
     status: 'approved_by_warden',
     exitTime: { $exists: true },
     returnTime: { $exists: false },
@@ -121,7 +127,7 @@ export const getWardenDashboardStats = asyncHandler(async (req, res) => {
 
   // Get recent outpass requests
   const recentOutpasses = await OutpassRequest.find({
-    student: { $in: await Student.find({ hostelBlock: { $in: warden.assignedHostelBlocks } }).distinct('_id') },
+    student: { $in: studentIdsForBlocks },
   })
     .populate('student', 'firstName lastName rollNumber hostelBlock')
     .sort({ createdAt: -1 })
@@ -135,7 +141,7 @@ export const getWardenDashboardStats = asyncHandler(async (req, res) => {
         pendingOutpasses,
         approvedToday,
         studentsOut,
-        assignedBlocks: warden.assignedHostelBlocks,
+        assignedBlocks,
         hostelType: warden.hostelType,
         recentOutpasses,
       },
@@ -211,7 +217,11 @@ export const getWardenStudents = asyncHandler(async (req, res) => {
     return res.status(404).json(new ApiResponse(404, null, 'Warden not found'))
   }
 
-  const query = { hostelBlock: { $in: warden.assignedHostelBlocks } }
+  const assignedBlocks = Array.isArray(warden.assignedHostelBlocks)
+    ? warden.assignedHostelBlocks.map(b => (typeof b === 'string' ? b : (b.blockName || b.hostelBlock))).filter(Boolean)
+    : []
+
+  const query = { hostelBlock: { $in: assignedBlocks } }
   if (search) {
     query.$or = [
       { firstName: { $regex: search, $options: 'i' } },
@@ -259,7 +269,11 @@ export const getWardenOutpasses = asyncHandler(async (req, res) => {
     return res.status(404).json(new ApiResponse(404, null, 'Warden not found'))
   }
 
-  const studentIds = await Student.find({ hostelBlock: { $in: warden.assignedHostelBlocks } }).distinct('_id')
+  const assignedBlocks = Array.isArray(warden.assignedHostelBlocks)
+    ? warden.assignedHostelBlocks.map(b => (typeof b === 'string' ? b : (b.blockName || b.hostelBlock))).filter(Boolean)
+    : []
+
+  const studentIds = await Student.find({ hostelBlock: { $in: assignedBlocks } }).distinct('_id')
 
   const query = { student: { $in: studentIds } }
   if (status) query.wardenApprovalStatus = status

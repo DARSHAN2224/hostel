@@ -2,6 +2,7 @@
 import OutpassRequest from '../models/OutpassRequest.js';
 import Student from '../models/Student.js';
 import Hod from '../models/Hod.js';
+import Warden from '../models/Warden.js';
 import { sendSms } from '../utils/smsSender.js'
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
@@ -159,7 +160,29 @@ const outpassController = {
       // Build query based on role
       let query = {};
       if (req.user.role === 'warden') {
-        query.warden = req.user.id;
+        // Fetch warden assigned blocks and include outpasses for students in those blocks
+        try {
+          const warden = await Warden.findById(req.user.id).select('assignedHostelBlocks');
+          const assignedBlocks = Array.isArray(warden?.assignedHostelBlocks)
+            ? warden.assignedHostelBlocks.map(b => (b && b.blockName ? b.blockName : null)).filter(Boolean)
+            : [];
+
+          if (assignedBlocks.length > 0) {
+            // Find student ids that belong to these blocks
+            const studentsInBlocks = await Student.find({ hostelBlock: { $in: assignedBlocks } }).select('_id');
+            const studentIds = studentsInBlocks.map(s => s._id);
+
+            // Query outpasses either explicitly assigned to this warden OR belonging to students in assigned blocks
+            query.$or = [ { warden: req.user.id } ];
+            if (studentIds.length > 0) query.$or.push({ student: { $in: studentIds } });
+          } else {
+            // If no assigned blocks, fall back to only outpasses explicitly assigned to warden
+            query.warden = req.user.id;
+          }
+        } catch (err) {
+          // On any failure retrieving warden info, fall back to warden-specific outpasses
+          query.warden = req.user.id;
+        }
       }
       // Admin and HOD can see all outpasses
       
