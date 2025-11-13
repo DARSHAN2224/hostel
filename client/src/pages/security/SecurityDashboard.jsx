@@ -27,7 +27,6 @@ import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import { formatDateTime } from '../../utils/helpers'
 import securityService from '../../services/securityService'
-import outpassService from '../../services/outpassService'
 import toast from 'react-hot-toast'
 import { Scanner } from '@yudiel/react-qr-scanner'
 
@@ -54,6 +53,25 @@ export default function SecurityDashboard() {
       // Fetch active outpasses
       const response = await securityService.getActiveOutpasses()
       const outpasses = response?.data?.data || response?.data?.outpasses || []
+      // Ensure minimal normalization so the UI won't crash if server shape varies
+      const safeOutpasses = (outpasses || []).map(orig => {
+        const o = { ...orig }
+        try {
+          if (o._id && o._id.$oid) o._id = o._id.$oid
+          else if (o._id && o._id.toString) o._id = o._id.toString()
+        } catch (err) { console.debug('safeOutpasses id conversion failed', err) }
+        o.student = o.student || {}
+        o.student.firstName = o.student.firstName || o.student.firstname || ''
+        o.student.lastName = o.student.lastName || o.student.lastname || ''
+        o.student.registerNumber = o.student.registerNumber || o.student.rollNumber || o.studentId || o.rollNumber || ''
+        o.student.hostelBlock = o.student.hostelBlock || o.student.hostel_block || ''
+        if (o.destination && typeof o.destination === 'object') o.destination = o.destination.place || JSON.stringify(o.destination)
+        o.departureDateTime = o.departureDateTime || o.leaveTime || null
+        o.returnDateTime = o.returnDateTime || o.expectedReturnTime || null
+        o.exitTime = o.exitTime || (o.gateEntry && o.gateEntry.exitTime) || null
+        o.returnTime = o.returnTime || (o.gateEntry && o.gateEntry.returnTime) || null
+        return o
+      })
       
       // Calculate stats from the data
       const now = new Date()
@@ -78,7 +96,7 @@ export default function SecurityDashboard() {
         overdueOutpasses
       })
       
-      setActiveOutpasses(outpasses)
+      setActiveOutpasses(safeOutpasses)
       setLoading(false)
     } catch (error) {
       console.error('Failed to fetch security data:', error)
@@ -92,23 +110,57 @@ export default function SecurityDashboard() {
   }, [fetchSecurityData])
 
   const filteredOutpasses = activeOutpasses.filter(outpass => {
-    const student = outpass.student
+    const student = outpass.student || {}
+    const q = (searchQuery || '').toLowerCase()
     return (
-      student.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.registerNumber.toLowerCase().includes(searchQuery.toLowerCase())
+      (student.firstName || '').toLowerCase().includes(q) ||
+      (student.lastName || '').toLowerCase().includes(q) ||
+      (student.registerNumber || '').toLowerCase().includes(q)
     )
   })
 
   const resolveOutpassFromCode = (code) => {
     try {
+      // Accept raw id, JSON string, base64 payload, or known keys
       let payload = code
-      if (typeof code === 'string' && code.trim().startsWith('{')) {
-        payload = JSON.parse(code)
+
+      // If base64 encoded JSON was pasted (common for QR payloads), attempt decode
+      if (typeof code === 'string') {
+        const txt = code.trim()
+        // base64 detection: fairly loose check
+        if (/^[A-Za-z0-9+/=\s]+$/.test(txt) && txt.length % 4 === 0) {
+          try {
+            const decoded = atob(txt)
+            if (decoded && decoded.trim().startsWith('{')) payload = decoded
+          } catch {
+            console.debug('resolveOutpassFromCode: not valid base64')
+          }
+        }
+
+        if (typeof payload === 'string' && payload.trim().startsWith('{')) {
+          try { payload = JSON.parse(payload) } catch (err) { console.debug('resolveOutpassFromCode JSON parse failed', err) }
+        }
       }
-      const outpassId = typeof payload === 'string' ? payload : payload?.outpassId
-      if (!outpassId) return null
-        return activeOutpasses.find(o => o._id === outpassId) || null
+
+      // Candidates for id: payload string, payload._id, payload.id, payload.requestId, payload.outpassId
+      const candidates = []
+      if (typeof payload === 'string') candidates.push(payload)
+      if (payload && typeof payload === 'object') {
+        if (payload._id) candidates.push(String(payload._id))
+        if (payload.id) candidates.push(String(payload.id))
+        if (payload.requestId) candidates.push(String(payload.requestId))
+        if (payload.outpassId) candidates.push(String(payload.outpassId))
+        if (payload.request_id) candidates.push(String(payload.request_id))
+      }
+
+      // Try to match any candidate against the currently loaded active outpasses
+      for (const c of candidates) {
+        if (!c) continue
+        const found = activeOutpasses.find(o => String(o._id) === String(c) || String(o.requestId) === String(c))
+        if (found) return found
+      }
+
+      return null
     } catch {
       return null
     }
@@ -118,13 +170,22 @@ export default function SecurityDashboard() {
       if (!o) return null
       const out = { ...o }
       // ensure _id is string
-      out._id = out._id && out._id.$oid ? out._id.$oid : (out._id && out._id.toString ? out._id.toString() : out._id)
-      out.departureDateTime = out.departureDateTime || out.leaveTime || out.leaveTime
-      out.returnDateTime = out.returnDateTime || out.expectedReturnTime || out.expectedReturnTime
+      try {
+        if (out._id && out._id.$oid) out._id = out._id.$oid
+        else if (out._id && out._id.toString) out._id = out._id.toString()
+      } catch (err) { console.debug('normalizeOutpassForClient id conversion failed', err) }
+
+      out.departureDateTime = out.departureDateTime || out.leaveTime || out.departureDateTime || null
+      out.returnDateTime = out.returnDateTime || out.expectedReturnTime || out.returnDateTime || null
       out.exitTime = out.exitTime || (out.gateEntry && out.gateEntry.exitTime) || null
       out.returnTime = out.returnTime || (out.gateEntry && out.gateEntry.returnTime) || null
+
       out.student = out.student || {}
-      out.student.registerNumber = out.student.registerNumber || out.student.rollNumber || out.studentId || out.rollNumber
+      out.student.firstName = out.student.firstName || out.student.firstname || ''
+      out.student.lastName = out.student.lastName || out.student.lastname || ''
+      out.student.registerNumber = out.student.registerNumber || out.student.rollNumber || out.studentId || out.rollNumber || ''
+      out.student.hostelBlock = out.student.hostelBlock || out.student.hostel_block || ''
+
       // Normalize destination: sometimes stored as object {place: '...'}
       if (out.destination && typeof out.destination === 'object') {
         out.destination = out.destination.place || JSON.stringify(out.destination)
@@ -136,7 +197,7 @@ export default function SecurityDashboard() {
   const handleScanResult = (result) => {
     if (!result) return
     const text = Array.isArray(result) ? result[0]?.rawValue || result[0]?.text : result.rawValue || result.text || String(result)
-    (async () => {
+    ;(async () => {
       let found = resolveOutpassFromCode(text)
       if (!found) {
         try {
@@ -306,7 +367,7 @@ export default function SecurityDashboard() {
                   />
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={()=>{
-                      (async () => {
+                      ;(async () => {
                         let found = resolveOutpassFromCode(manualCode)
                         if (!found) {
                           try {
@@ -327,7 +388,7 @@ export default function SecurityDashboard() {
                       Verify Code
                     </Button>
                     <Button variant="success" icon={ArrowRightEndOnRectangleIcon} onClick={()=>{
-                      (async () => {
+                      ;(async () => {
                         let found = resolveOutpassFromCode(manualCode)
                         if (!found) {
                           try {
@@ -348,14 +409,18 @@ export default function SecurityDashboard() {
                       Record Exit
                     </Button>
                     <Button variant="primary" icon={ArrowLeftStartOnRectangleIcon} onClick={()=>{
-                      (async () => {
+                      ;(async () => {
                         let found = resolveOutpassFromCode(manualCode)
                         if (!found) {
                           try {
                             const resp = await securityService.verifyOutpass(manualCode)
                             const serverOut = resp?.data || resp
                             if (serverOut) found = normalizeOutpassForClient(serverOut)
-                          } catch (err) {}
+                          } catch (err) {
+                            console.error('verifyOutpass error', err)
+                            const msg = err?.message || err?.data?.message || 'Server error'
+                            toast.error(msg)
+                          }
                         }
 
                         if(found){ setSelectedOutpass(found); setActionType('return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
