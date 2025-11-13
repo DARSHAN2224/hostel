@@ -47,10 +47,7 @@ const securitySchema = new mongoose.Schema({
   
  
   // Employment Details
-  joiningDate: {
-    type: Date,
-    required: [true, 'Joining date is required']
-  },
+  // Employment details intentionally minimal for security role (joiningDate removed)
   department: {
     type: String,
     default: 'Security'
@@ -104,21 +101,7 @@ const securitySchema = new mongoose.Schema({
   },
   
   // Emergency Contact
-  emergencyContact: {
-    name: {
-      type: String,
-      required: [true, 'Emergency contact name is required']
-    },
-    phone: {
-      type: String,
-      required: [true, 'Emergency contact phone is required'],
-      match: [/^[0-9]{10,15}$/, 'Please provide a valid emergency contact phone']
-    },
-    relationship: {
-      type: String,
-      required: [true, 'Emergency contact relationship is required']
-    }
-  },
+  // Emergency contact removed for security role; keep profile minimal
   
   // Account Security
   isEmailVerified: {
@@ -185,12 +168,7 @@ securitySchema.virtual('fullName').get(function() {
 })
 
 // Virtual for years of service
-securitySchema.virtual('yearsOfService').get(function() {
-  if (!this.joiningDate) return 0
-  const today = new Date()
-  const joining = new Date(this.joiningDate)
-  return Math.floor((today - joining) / (365.25 * 24 * 60 * 60 * 1000))
-})
+// yearsOfService removed - joiningDate no longer tracked for security
 
 // Virtual for primary gate
 securitySchema.virtual('primaryGate').get(function() {
@@ -213,33 +191,11 @@ securitySchema.pre('save', async function(next) {
 })
 
   // Pre-save middleware to update profile completion
+// Profile completion logic simplified: only require core fields for security
 securitySchema.pre('save', function(next) {
-  // Check if required fields for profile completion are filled
-  const requiredFields = [
-    'firstName', 'lastName', 'email', 'phone',
-    'dateOfBirth', 'gender', 'joiningDate'
-  ]
-  
-  const addressFields = [
-    'address.city', 'address.state', 'address.zipCode'
-  ]
-  
-  const emergencyFields = [
-    'emergencyContact.name', 'emergencyContact.phone', 'emergencyContact.relationship'
-  ]
-  
-  const isRequiredComplete = requiredFields.every(field => this[field])
-  const isAddressComplete = addressFields.every(field => {
-    const keys = field.split('.')
-    return keys.reduce((obj, key) => obj && obj[key], this)
-  })
-  const isEmergencyComplete = emergencyFields.every(field => {
-    const keys = field.split('.')
-    return keys.reduce((obj, key) => obj && obj[key], this)
-  })
-  
-  this.profileCompleted = isRequiredComplete && isAddressComplete && isEmergencyComplete
-  
+  const requiredFields = ['firstName', 'lastName', 'email', 'phone']
+  const isRequiredComplete = requiredFields.every(f => this[f])
+  this.profileCompleted = Boolean(isRequiredComplete)
   next()
 })
 

@@ -40,7 +40,7 @@ export default function StudentManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filters, setFilters] = useState({
     hostelBlock: '',
-    year: '',
+    yearOfStudy: '',
     status: ''
   })
   const [selectedStudent, setSelectedStudent] = useState(null)
@@ -80,7 +80,9 @@ export default function StudentManagement() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (currentUser && currentUser.role !== 'admin') {
+    // Allow admins, HODs and Wardens to access this page. Other roles are redirected.
+    // Wardens need access to manage/view students assigned to their block(s).
+    if (currentUser && !['admin', 'hod', 'warden'].includes(currentUser.role)) {
       navigate('/')
     }
   }, [currentUser, navigate])
@@ -121,7 +123,10 @@ export default function StudentManagement() {
   const fetchStudents = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await studentService.getAll(filters)
+      // Use HOD-specific endpoint when a hod is viewing the page to avoid 403
+      const response = currentUser?.role === 'hod'
+        ? await studentService.getForHod(filters)
+        : await studentService.getAll(filters)
       // Robustly extract student array from any backend response structure
       let studentList = []
       if (Array.isArray(response)) {
@@ -144,7 +149,7 @@ export default function StudentManagement() {
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [filters, currentUser?.role])
 
   useEffect(() => {
     fetchStudents()
@@ -335,7 +340,7 @@ export default function StudentManagement() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <Badge variant="primary">
-                    Academic Year {student.year}
+                    Year {student.yearOfStudy || student.year}
                   </Badge>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -375,24 +380,28 @@ export default function StudentManagement() {
                     >
                       <EyeIcon className="h-5 w-5" />
                     </Motion.button>
-                    <Motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => handleEdit(student)}
-                      className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                      title="Edit"
-                    >
-                      <PencilIcon className="h-5 w-5" />
-                    </Motion.button>
-                    <Motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => handleDelete(student)}
-                      className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                      title="Delete"
-                    >
-                      <TrashIcon className="h-5 w-5" />
-                    </Motion.button>
+                    {currentUser?.role === 'admin' && (
+                      <>
+                        <Motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleEdit(student)}
+                          className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                          title="Edit"
+                        >
+                          <PencilIcon className="h-5 w-5" />
+                        </Motion.button>
+                        <Motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleDelete(student)}
+                          className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          title="Delete"
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </Motion.button>
+                      </>
+                    )}
                   </div>
                 </td>
               </Motion.tr>
@@ -420,14 +429,16 @@ export default function StudentManagement() {
               Manage and monitor all registered students
             </p>
           </div>
-          <Button
-            icon={UserPlusIcon}
-            variant="primary"
-            className="shadow-lg shadow-blue-500/30"
-            onClick={() => setShowAddModal(true)}
-          >
-            Add Student
-          </Button>
+          {currentUser?.role === 'admin' && (
+            <Button
+              icon={UserPlusIcon}
+              variant="primary"
+              className="shadow-lg shadow-blue-500/30"
+              onClick={() => setShowAddModal(true)}
+            >
+              Add Student
+            </Button>
+          )}
         </div>
 
         {/* Search and Filters */}
@@ -460,18 +471,19 @@ export default function StudentManagement() {
               className="bg-white dark:bg-slate-900"
             />
 
-            {/* Academic Year Filter */}
+            {/* Year of Study Filter (1st, 2nd, etc.) */}
             <Select
-              placeholder="All Academic Years"
+              placeholder="All Years of Study"
               options={[
-                { label: '2022', value: '2022' },
-                { label: '2023', value: '2023' },
-                { label: '2024', value: '2024' },
-                { label: '2025', value: '2025' },
-                { label: '2026', value: '2026' }
+                { label: '1st Year', value: '1' },
+                { label: '2nd Year', value: '2' },
+                { label: '3rd Year', value: '3' },
+                { label: '4th Year', value: '4' },
+                { label: '5th Year', value: '5' },
+                { label: '6th Year', value: '6' }
               ]}
-              value={filters.year}
-              onChange={(e) => setFilters({ ...filters, year: e.target.value })}
+              value={filters.yearOfStudy}
+              onChange={(e) => setFilters({ ...filters, yearOfStudy: e.target.value })}
               glassmorphic
               className="bg-white dark:bg-slate-900"
             />
@@ -479,7 +491,7 @@ export default function StudentManagement() {
 
           {/* Active Filters */}
           <AnimatePresence>
-            {(filters.hostelBlock || filters.year || searchTerm) && (
+            {(filters.hostelBlock || filters.yearOfStudy || searchTerm) && (
               <Motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
@@ -499,9 +511,9 @@ export default function StudentManagement() {
                     Block: {filters.hostelBlock}
                   </Badge>
                 )}
-                {filters.year && (
+                {filters.yearOfStudy && (
                   <Badge variant="success">
-                    Year: {filters.year}
+                    Year: {filters.yearOfStudy}
                   </Badge>
                 )}
                 <button
@@ -617,12 +629,16 @@ export default function StudentManagement() {
               >
                 Close
               </Button>
-              <Button variant="warning" onClick={suspendStudent}>
-                Suspend
-              </Button>
-              <Button variant="success" onClick={activateStudent}>
-                Activate
-              </Button>
+              {currentUser?.role === 'admin' && (
+                <>
+                  <Button variant="warning" onClick={suspendStudent}>
+                    Suspend
+                  </Button>
+                  <Button variant="success" onClick={activateStudent}>
+                    Activate
+                  </Button>
+                </>
+              )}
             </ModalFooter>
           </div>
         )}

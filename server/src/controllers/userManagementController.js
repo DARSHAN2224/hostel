@@ -171,18 +171,24 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     }
   }
 
-  if (role === 'admin' || role === 'security' || role === 'parent') {
-    const { firstName, lastName, phone, adminRole, dateOfBirth, gender, joiningDate, address, emergencyContact } = rest
+  if (role === 'admin' || role === 'parent') {
+    const { firstName, lastName, phone, adminRole, address, emergencyContact } = rest
     userData = { ...userData, firstName, lastName, phone }
 
     if (role === 'admin') {
       userData.adminRole = adminRole
     }
 
-    if (role === 'security') {
-      // employeeId, designation and shift were removed from the security profile as requested.
-      Object.assign(userData, { dateOfBirth, gender, joiningDate, address, emergencyContact })
-    }
+    // Admin and parent may optionally include address/emergencyContact; security does not
+    if (address) userData.address = address
+    if (emergencyContact) userData.emergencyContact = emergencyContact
+  }
+
+  if (role === 'security') {
+    const { firstName, lastName, phone } = rest
+    // Keep security profile minimal: only basic contact info is stored via managed creation
+    userData = { ...userData, firstName, lastName, phone }
+    // employeeId/designation/shift/address/emergencyContact/joiningDate are intentionally omitted
   }
 
   // Enforce password presence for non-admin creators (warden must supply password)
@@ -715,7 +721,7 @@ export const updateUser = asyncHandler(async (req, res, next) => {
     ['department', 'phone', 'name', 'firstName', 'lastName'].forEach(setIfPresent)
   }
 
-  if (role === 'admin' || role === 'security' || role === 'parent') {
+  if (role === 'admin' || role === 'parent') {
     ['address', 'emergencyContact', 'adminRole'].forEach(setIfPresent)
   }
 

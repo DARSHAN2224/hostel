@@ -60,7 +60,8 @@ export default function HODDashboard() {
         totalStudents: statsData.totalStudents || 0,
         pendingApprovals: statsData.pendingOutpasses || 0,
         approvedThisMonth: statsData.approvedOutpasses || 0,
-        rejectedThisMonth: statsData.rejectedOutpasses || 0
+        rejectedThisMonth: statsData.rejectedOutpasses || 0,
+        yearDistribution: statsData.yearDistribution || []
       })
       setPendingApprovals(Array.isArray(data.pendingOutpasses) ? data.pendingOutpasses : [])
       setLoading(false)
@@ -128,7 +129,7 @@ export default function HODDashboard() {
       const rows = pendingApprovals.map(p => ({
         Student: `${p.student?.firstName || ''} ${p.student?.lastName || ''}`.trim(),
         Register: p.student?.registerNumber,
-        Year: p.student?.year,
+        Year: p.student?.yearOfStudy || p.student?.year,
         Reason: p.reason,
         Destination: p.destination,
         Depart: formatDateTime(p.departureDateTime),
@@ -204,13 +205,10 @@ export default function HODDashboard() {
       bgColor: 'bg-red-50 dark:bg-red-900/20'
     }
   ]
-
-  const yearDistribution = [
-    { year: 'Year 1', count: 45, color: 'from-blue-500 to-cyan-500' },
-    { year: 'Year 2', count: 50, color: 'from-green-500 to-emerald-500' },
-    { year: 'Year 3', count: 48, color: 'from-purple-500 to-pink-500' },
-    { year: 'Year 4', count: 37, color: 'from-orange-500 to-red-500' }
-  ]
+  // Build year distribution from stats if available, otherwise show empty
+  const yearDistribution = (stats.yearDistribution && Array.isArray(stats.yearDistribution))
+    ? stats.yearDistribution.map((y, idx) => ({ year: `Year ${y.yearOfStudy}`, count: y.count, color: ['from-blue-500 to-cyan-500','from-green-500 to-emerald-500','from-purple-500 to-pink-500','from-orange-500 to-red-500','from-amber-500 to-yellow-500','from-teal-500 to-cyan-500'][idx % 6] }))
+    : []
 
   return (
     <DashboardLayout>
@@ -385,7 +383,7 @@ export default function HODDashboard() {
                                   {outpass.student.firstName} {outpass.student.lastName}
                                 </h4>
                                 <Badge variant="default">{outpass.student.registerNumber}</Badge>
-                                <Badge variant="default">Year {outpass.student.year}</Badge>
+                                <Badge variant="default">Year {outpass.student.yearOfStudy || outpass.student.year}</Badge>
                               </div>
                               <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                                 {outpass.reason}

@@ -16,6 +16,14 @@ export const studentService = {
   },
 
   /**
+   * Get students for HOD (by department)
+   * @param {Object} params - Query parameters
+   */
+  getForHod: async (params = {}) => {
+    return await apiClient.get(API_ENDPOINTS.HOD_STUDENTS, { params })
+  },
+
+  /**
    * Search students
    * @param {Object} searchParams
    * @returns {Promise}

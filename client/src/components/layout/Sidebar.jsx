@@ -47,6 +47,16 @@ export default function Sidebar({ onLogout, mobile }) {
     ? [...baseNavigation.slice(0, 2), ...adminOnlyNavigation, ...baseNavigation.slice(2)]
     : baseNavigation
 
+  // Ensure HODs see the Students link in the sidebar as well
+  const isHod = user?.role === 'hod'
+  if (isHod) {
+    const hasStudents = navigation.some(i => i.href === ROUTES.STUDENTS)
+    if (!hasStudents) {
+      // Insert Students after Dashboard
+      navigation.splice(1, 0, { name: 'Students', href: ROUTES.STUDENTS, icon: UserGroupIcon, gradient: 'from-green-500 to-emerald-500' })
+    }
+  }
+
   // Hide certain admin/management links for students to avoid navigation to admin pages
   const studentHiddenPaths = [ROUTES.STUDENTS, ROUTES.OUTPASS_REQUESTS, ROUTES.OUTPASS_HISTORY, ROUTES.REPORTS]
 

@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
-import { Student, Warden, Admin, Security, Credential, AuditLog } from '../models/index.js'
+import { Student, Warden, Admin, Security, Hod, Credential, AuditLog } from '../models/index.js'
 import { AppError } from '../middleware/errorHandler.js'
 import { HOSTEL_BLOCKS, HOSTEL_TYPES } from '../utils/constants.js'
 import generateVerificationCode from '../utils/generateVerificationCode.js'
@@ -25,7 +25,8 @@ const setTokenCookie = (res, name, token, maxAge, secure = false) => {
 }
 
 // Internal helpers
-const AUTH_MODELS = [Student, Warden, Admin, Security] // Parent excluded from auth flows
+// Include Hod so HOD users can authenticate using the central auth flows
+const AUTH_MODELS = [Student, Warden, Admin, Security, Hod] // Parent excluded from auth flows
 
 const findUserByEmailAcrossAuthModels = async (email, includePassword = false) => {
   for (const Model of AUTH_MODELS) {

@@ -70,8 +70,12 @@ export const authenticateToken = async (req, res, next) => {
       }
 
       if (found.mustChangePassword) {
-  const path = req.path || ''
-        const isAllowed = allowedPathsWhileMustChange.some(p => path.startsWith(p))
+        // When routes are mounted (e.g. /api/v1/auth), req.path may be
+        // the path relative to the mount point (e.g. '/change-password').
+        // Use originalUrl when available so allowedPaths with full prefixes
+        // (like '/api/v1/auth/change-password') match correctly.
+        const pathToCheck = req.originalUrl || req.path || ''
+        const isAllowed = allowedPathsWhileMustChange.some(p => pathToCheck.startsWith(p) || (req.path || '').startsWith(p))
         if (!isAllowed) {
           return res.status(403).json({ success: false, statusCode: 403, message: 'Password change required. Please change your password before accessing the application.', data: null })
         }

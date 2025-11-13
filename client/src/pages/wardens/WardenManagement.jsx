@@ -31,7 +31,6 @@ import userService from '../../services/userService'
 import toast from 'react-hot-toast'
 import { useSelector } from 'react-redux'
 import { selectUser } from '../../store/authSlice'
-
 export default function WardenManagement() {
   const [wardens, setWardens] = useState([])
   const [loading, setLoading] = useState(false)
@@ -55,7 +54,7 @@ export default function WardenManagement() {
     hostelBlock: '',
     hostelType: '',
     status: 'active',
-    emergencyContact: { name: '', phone: '', relationship: '' }
+    // emergencyContact removed per admin UI change
   })
   const inFlightRef = useRef(false)
 
@@ -131,7 +130,7 @@ export default function WardenManagement() {
   const handleSearch = (e) => {
     setSearchTerm(e.target.value)
   }
-
+  
   const filteredWardens = Array.isArray(wardens) ? wardens.filter(warden => {
     const fullName = `${warden.firstName || ''} ${warden.lastName || ''}`.trim()
     return (
@@ -140,7 +139,6 @@ export default function WardenManagement() {
       (warden.name || '').toLowerCase().includes(searchTerm.toLowerCase())
     )
   }) : []
-
   const handleView = (warden) => {
     setSelectedWarden(warden)
     setShowViewModal(true)
@@ -161,7 +159,7 @@ export default function WardenManagement() {
       hostelBlock: warden.hostelBlock || '',
       hostelType: warden.hostelType || '',
       status: warden.status || 'active',
-      emergencyContact: warden.emergencyContact || { name: '', phone: '', relationship: '' }
+      // emergencyContact intentionally omitted from edit form
     })
     setShowEditModal(true)
   }
@@ -175,7 +173,7 @@ export default function WardenManagement() {
       hostelBlock: '',
       hostelType: '',
       status: 'active',
-      emergencyContact: { name: '', phone: '', relationship: '' }
+      // emergencyContact removed
     })
     setShowAddModal(true)
   }
@@ -212,7 +210,7 @@ export default function WardenManagement() {
         hostelBlock: '',
         hostelType: '',
         status: 'active',
-        emergencyContact: { name: '', phone: '', relationship: '' }
+        // emergencyContact removed
       })
       fetchWardens()
     } catch (error) {
@@ -693,16 +691,7 @@ export default function WardenManagement() {
               <option value="D">Block D</option>
             </Select>
           </div>
-          {/* Emergency Contact */}
-          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Name" value={editData.emergencyContact?.name || ''} onChange={(e) => setEditData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, name: e.target.value } }))} />
-            <Input label="Phone" value={editData.emergencyContact?.phone || ''} onChange={(e) => setEditData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, phone: e.target.value } }))} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Relationship" value={editData.emergencyContact?.relationship || ''} onChange={(e) => setEditData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, relationship: e.target.value } }))} />
-            <div />
-          </div>
+          {/* Emergency contact removed from edit form per admin request */}
           <Select
             label="Status"
             value={editData.status || 'active'}
@@ -783,16 +772,7 @@ export default function WardenManagement() {
               <option value="D">Block D</option>
             </Select>
           </div>
-          {/* Emergency Contact */}
-          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Emergency Contact</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Name" value={addData.emergencyContact?.name || ''} onChange={(e) => setAddData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, name: e.target.value } }))} />
-            <Input label="Phone" value={addData.emergencyContact?.phone || ''} onChange={(e) => setAddData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, phone: e.target.value } }))} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Relationship" value={addData.emergencyContact?.relationship || ''} onChange={(e) => setAddData((prev) => ({ ...prev, emergencyContact: { ...prev.emergencyContact, relationship: e.target.value } }))} />
-            <div />
-          </div>
+          {/* Emergency contact removed from add form per admin request */}
           <ModalFooter>
             <Button variant="ghost" onClick={() => setShowAddModal(false)}>
               Cancel

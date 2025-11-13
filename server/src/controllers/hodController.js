@@ -157,7 +157,27 @@ const hodController = {
       return next(new AppError('Please verify your email to continue. A verification email has been sent.', 403))
     }
 
-    const valid = await bcrypt.compare(password, hod.password)
+    let valid = false
+    try {
+      valid = await bcrypt.compare(password, hod.password)
+    } catch {
+      // In case stored password is plain text (older records), fall back to direct equality
+      valid = hod.password === password
+    }
+
+    // If comparison failed but the stored value matched plaintext, upgrade to hashed password
+    if (!valid && hod.password === password) {
+      try {
+        const hashed = await bcrypt.hash(password, 12)
+        hod.password = hashed
+        // preserve mustChangePassword flag if already set; do not unset here
+        await hod.save({ validateBeforeSave: false })
+        valid = true
+      } catch (upgradeErr) {
+        console.warn('Failed to upgrade plain-text password to hashed form for HOD:', upgradeErr)
+      }
+    }
+
     if (!valid) return next(new AppError('Invalid credentials', 401))
 
     // Generate JWT token

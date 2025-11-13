@@ -99,6 +99,14 @@ const outpassController = {
       // Get total students in department
       const totalStudents = await Student.countDocuments({ department: hod.department, hodId: hodId });
 
+      // Get distribution by yearOfStudy (1..6)
+      const yearAgg = await Student.aggregate([
+        { $match: { department: hod.department, hodId: hodId } },
+        { $group: { _id: '$yearOfStudy', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ])
+      const yearDistribution = yearAgg.map(y => ({ yearOfStudy: y._id, count: y.count }))
+
       // Get approved outpasses count
       const approvedCount = await OutpassRequest.countDocuments({ 
         hod: hodId, 
@@ -117,7 +125,8 @@ const outpassController = {
           totalStudents,
           pendingOutpasses: pendingOutpasses.length,
           approvedOutpasses: approvedCount,
-          rejectedOutpasses: rejectedCount
+          rejectedOutpasses: rejectedCount,
+          yearDistribution
         },
         pendingOutpasses 
       });

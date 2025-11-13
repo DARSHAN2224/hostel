@@ -1,4 +1,7 @@
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
+import { config } from '../config/config.js'
 const Schema = mongoose.Schema;
 
 const HodSchema = new Schema({
@@ -9,6 +12,10 @@ const HodSchema = new Schema({
   department: { type: String, required: true },
   phone: { type: String },
   status: { type: String, default: 'active' },
+  // Role and login tracking so auth flows can treat HOD like other auth models
+  role: { type: String, enum: ['hod'], default: 'hod' },
+  lastLogin: { type: Date },
+  loginCount: { type: Number, default: 0 },
   // Email verification fields (align with other auth-enabled models)
   isEmailVerified: { type: Boolean, default: false },
   emailVerificationToken: String,
@@ -38,6 +45,49 @@ HodSchema.methods.toJSON = function() {
   delete hod.__v
   return hod
 }
+
+// Instance method to check password
+HodSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
+  return await bcrypt.compare(candidatePassword, userPassword)
+}
+
+// Instance method to generate JWT tokens (compatible with authController expectations)
+HodSchema.methods.generateTokens = function() {
+  const payload = {
+    id: this._id,
+    email: this.email,
+    role: this.role
+  }
+
+  const accessToken = jwt.sign(payload, config.jwt.secret, {
+    expiresIn: config.jwt.expiresIn
+  })
+
+  const refreshToken = jwt.sign({ id: this._id }, config.jwt.refreshSecret, {
+    expiresIn: config.jwt.refreshExpiresIn
+  })
+
+  return { accessToken, refreshToken }
+}
+
+// Instance method to update last login
+HodSchema.methods.updateLastLogin = async function() {
+  this.lastLogin = new Date()
+  this.loginCount = (this.loginCount || 0) + 1
+  await this.save({ validateBeforeSave: false })
+}
+
+// Pre-save middleware to hash password if modified
+HodSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next()
+  try {
+    const salt = await bcrypt.genSalt(12)
+    this.password = await bcrypt.hash(this.password, salt)
+    next()
+  } catch (err) {
+    next(err)
+  }
+})
 
 // Virtual for assigned students count (populate with count)
 HodSchema.virtual('assignedStudentsCount', {

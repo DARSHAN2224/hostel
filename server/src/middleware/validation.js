@@ -451,23 +451,18 @@ export const managedCreateSchema = Joi.object({
   // Admin-specific
   adminRole: Joi.string().when('role', { is: 'admin', then: Joi.required(), otherwise: Joi.forbidden() }),
 
-  dateOfBirth: Joi.date().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
-  gender: Joi.string().valid('male', 'female', 'other').when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
-  joiningDate: Joi.date().when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
+  // The following personal fields are not required for security accounts and should not be sent
+  // by clients when creating managed users of role 'security'. For safety we forbid them here
+  // so the API won't expect or accept these fields for security personnel.
+  dateOfBirth: Joi.forbidden(),
+  gender: Joi.forbidden(),
+  joiningDate: Joi.forbidden(),
   // Note: employeeId, designation and currentShift are not required for security
   // and were removed from the security schema per product decision.
-  address: Joi.object({
-    city: Joi.string().required(),
-    state: Joi.string().required(),
-    zipCode: Joi.string().required(),
-    street: Joi.string().optional(),
-    country: Joi.string().optional(),
-  }).when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
-  emergencyContact: Joi.object({
-    name: Joi.string().required(),
-    phone: Joi.string().pattern(/^[0-9]{10,15}$/).required(),
-    relationship: Joi.string().required(),
-  }).when('role', { is: 'security', then: Joi.required(), otherwise: Joi.forbidden() }),
+  // Address and emergency contact are not part of security managed creation payloads
+  // and should not be required or accepted for security role.
+  address: Joi.forbidden(),
+  emergencyContact: Joi.forbidden(),
 
   // Student-specific (minimal required for creation, can complete profile later)
   student: Joi.object({
