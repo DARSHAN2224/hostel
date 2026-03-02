@@ -16,6 +16,8 @@ export { default as violationService } from './violationService'
 export { default as auditLogService } from './auditLogService'
 export { default as userService } from './userService'
 export { default as parentService } from './parentService'
+// ADD with the other exports:
+export { default as counsellorService } from './counsellorService'
 export { default as reportService } from './reportService'
 
 // Named exports for convenience

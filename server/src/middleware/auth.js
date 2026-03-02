@@ -1,8 +1,7 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
 import { UnauthorizedError } from '../utils/customErrors.js'
-import { Student, Warden, Admin, Security, Hod } from '../models/index.js'
-
+import { Student, Warden, Admin, Security, Hod, Counsellor } from '../models/index.js'
 /**
  * Auth middleware to verify JWT tokens from cookies or Authorization header
  */
@@ -51,7 +50,7 @@ export const authenticateToken = async (req, res, next) => {
 
     // Find the user document across possible models to check mustChangePassword
     const id = decoded.id
-    const Models = [Student, Warden, Admin, Security, Hod]
+    const Models = [Student, Warden, Admin, Security, Hod, Counsellor]
     let found = null
     for (const M of Models) {
       try {

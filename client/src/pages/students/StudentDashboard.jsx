@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion as Motion } from 'framer-motion'
+import { useOutpassEvents } from '../../hooks/useSocket'
 import { useSelector } from 'react-redux'
 import toast from 'react-hot-toast'
 import {
@@ -35,6 +36,8 @@ import { outpassService, studentService } from '../../services'
 import { formatDate, formatRelativeTime } from '../../utils/helpers'
 import { OUTPASS_STATUS } from '../../constants'
 import QRCode from 'qrcode'
+import apiClient from '../../services/api'
+import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 export default function StudentDashboard() {
   const user = useSelector(selectUser)
@@ -60,6 +63,9 @@ export default function StudentDashboard() {
     returnTime: '',
     hodApprovalRequested: false
   })
+  const [editingOutpass, setEditingOutpass] = useState(null)
+  const [editFormData, setEditFormData] = useState({})
+  const [cancelling, setCancelling] = useState(null) // stores id being cancelled
 
   const handleDownloadQR = async () => {
     try {
@@ -78,7 +84,7 @@ export default function StudentDashboard() {
         type: 'outpass',
         outpassId: target._id,
         studentId: user?._id,
-        registerNumber: profile?.registerNumber || user?.registerNumber
+        rollNumber: profile?.rollNumber || user?.rollNumber
       }
       const dataUrl = await QRCode.toDataURL(JSON.stringify(payload), { width: 512, margin: 2 })
       const link = document.createElement('a')
@@ -142,28 +148,21 @@ export default function StudentDashboard() {
       setLoading(false)
     }
   }, [])
-
-  // Check if student can request outpass
-  const checkEligibility = useCallback(async () => {
-    try {
-      const response = await studentService.canRequestOutpass()
-      const payload = response?.data || response
-      setCanRequestOutpass(payload?.canRequest ?? true)
-
-      if (!payload?.canRequest && payload?.reason) {
-        toast.error(payload.reason)
-      }
-    } catch (error) {
-      console.error('Failed to check eligibility:', error)
-    }
-  }, [])
-
-  useEffect(() => {
-    dbg('mounted user', user)
-    fetchProfile()
+useOutpassEvents({
+  onApproved: (data) => {
+    toast.success('Your outpass was approved! ✅')
     fetchRecentOutpasses()
-    checkEligibility()
-  }, [user, fetchProfile, fetchRecentOutpasses, checkEligibility])
+  },
+  onRejected: (data) => {
+    toast.error('Your outpass was rejected')
+    fetchRecentOutpasses()
+  },
+})
+  // Check if student can request outpass
+      useEffect(() => {
+      fetchProfile()
+      fetchRecentOutpasses()
+    }, [user, fetchProfile, fetchRecentOutpasses])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -177,10 +176,10 @@ export default function StudentDashboard() {
   const handleSubmitRequest = async (e) => {
     e.preventDefault()
     
-    if (!canRequestOutpass) {
-      toast.error('You are not eligible to request an outpass at this time')
-      return
-    }
+    // if (!canRequestOutpass) {
+    //   toast.error('You are not eligible to request an outpass at this time')
+    //   return
+    // }
 
     setSubmitting(true)
     const loadingToast = toast.loading('Submitting outpass request...')
@@ -241,7 +240,7 @@ export default function StudentDashboard() {
       
   // Refresh server state in background to ensure consistency
   fetchRecentOutpasses()
-  checkEligibility()
+  // checkEligibility()
     } catch (error) {
       toast.error(error.message || 'Failed to submit outpass request', {
         id: loadingToast
@@ -250,7 +249,73 @@ export default function StudentDashboard() {
       setSubmitting(false)
     }
   }
+  const handleEditClick = (outpass) => {
+  // Pre-fill form with existing data
+  const dep = new Date(outpass.departureDateTime)
+  const ret = new Date(outpass.returnDateTime)
+  setEditFormData({
+    outpassType: outpass.outpassType || 'local',
+    reason: outpass.reason || '',
+    destination: outpass.destination || '',
+    departureDate: dep.toISOString().split('T')[0],
+    departureTime: dep.toTimeString().slice(0, 5),
+    returnDate: ret.toISOString().split('T')[0],
+    returnTime: ret.toTimeString().slice(0, 5),
+  })
+  setEditingOutpass(outpass)
+}
 
+  const handleEditSubmit = async (e) => {
+    e.preventDefault()
+    if (!editingOutpass?._id) return
+    setSubmitting(true)
+    const loadingToast = toast.loading('Updating outpass...')
+    try {
+      const leaveTime = new Date(`${editFormData.departureDate}T${editFormData.departureTime}`)
+      const expectedReturnTime = new Date(`${editFormData.returnDate}T${editFormData.returnTime}`)
+      await outpassService.update 
+        ? outpassService.update(editingOutpass._id, {
+            outpassType: editFormData.outpassType,
+            reason: editFormData.reason,
+            destination: editFormData.destination,
+            leaveTime: leaveTime.toISOString(),
+            expectedReturnTime: expectedReturnTime.toISOString(),
+          })
+        : apiClient.patch(`/outpass/${editingOutpass._id}`, {
+            outpassType: editFormData.outpassType,
+            reason: editFormData.reason,
+            destination: editFormData.destination,
+            leaveTime: leaveTime.toISOString(),
+            expectedReturnTime: expectedReturnTime.toISOString(),
+          })
+      toast.success('Outpass updated!', { id: loadingToast })
+      setEditingOutpass(null)
+      fetchRecentOutpasses()
+    } catch (err) {
+      toast.error(err.message || 'Failed to update outpass', { id: loadingToast })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleCancel = async (outpass) => {
+    if (!window.confirm('Cancel this outpass request?')) return
+    setCancelling(outpass._id)
+    try {
+      await outpassService.cancel(outpass._id, 'Cancelled by student')
+      toast.success('Outpass cancelled')
+      setRecentOutpasses(prev => 
+        prev.map(o => o._id === outpass._id ? { ...o, status: OUTPASS_STATUS.CANCELLED } : o)
+      )
+      setCanRequestOutpass(true) 
+      fetchRecentOutpasses()
+      // checkEligibility()
+    } catch (err) {
+      toast.error(err.message || 'Failed to cancel outpass')
+    } finally {
+      setCancelling(null)
+    }
+  }
   const getStatusColor = (status) => {
     switch (status) {
       case OUTPASS_STATUS.APPROVED:
@@ -353,7 +418,7 @@ export default function StudentDashboard() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                         <UserCircleIcon className="h-4 w-4" />
-                        <span>{profile?.registerNumber || user?.registerNumber || 'N/A'}</span>
+                        <span>{profile?.rollNumber || user?.rollNumber || 'N/A'}</span>
                       </div>
                       <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                         <EnvelopeIcon className="h-4 w-4" />
@@ -423,7 +488,7 @@ export default function StudentDashboard() {
                     <Button
                       icon={PaperAirplaneIcon}
                       onClick={() => setShowRequestForm(true)}
-                      disabled={!canRequestOutpass || recentOutpasses.some(o => ['pending','approved','approved_by_warden','approved_by_hod','out'].includes(o.status))}
+                     disabled={recentOutpasses.some(o => ['pending','approved','approved_by_warden','approved_by_hod','out'].includes(o.status))}
                       title={!canRequestOutpass || recentOutpasses.some(o => ['pending','approved','approved_by_warden','approved_by_hod','out'].includes(o.status)) ? 'You have an active or pending outpass' : 'Create a new outpass request'}
                     >
                       New Request
@@ -497,6 +562,30 @@ export default function StudentDashboard() {
                                 </div>
                               </div>
                             </div>
+
+                            <div className="flex flex-col gap-2 flex-shrink-0">
+                              {outpass.status === OUTPASS_STATUS.PENDING && (
+                                <button
+                                  onClick={() => handleEditClick(outpass)}
+                                  className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                                  title="Edit"
+                                >
+                                  <PencilIcon className="h-4 w-4" />
+                                </button>
+                              )}
+                              {[OUTPASS_STATUS.PENDING, OUTPASS_STATUS.APPROVED, 
+                                OUTPASS_STATUS.APPROVED_BY_WARDEN, OUTPASS_STATUS.APPROVED_BY_HOD].includes(outpass.status) && (
+                                <button
+                                  onClick={() => handleCancel(outpass)}
+                                  disabled={cancelling === outpass._id}
+                                  className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                                  title="Cancel"
+                                >
+                                  <TrashIcon className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+
                           </div>
                         </Motion.div>
                       )
@@ -630,6 +719,75 @@ export default function StudentDashboard() {
             )}
           </Motion.div>
         </div>
+                  {/* Edit Outpass Modal */}
+          {editingOutpass && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+              onClick={() => setEditingOutpass(null)}
+            >
+              <Motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Edit Outpass Request</h2>
+                  <button onClick={() => setEditingOutpass(null)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl leading-none"
+                  >×</button>
+                </div>
+                <form onSubmit={handleEditSubmit} className="space-y-4">
+                  <Select
+                    label="Outpass Type"
+                    value={editFormData.outpassType}
+                    onChange={(e) => setEditFormData(p => ({ ...p, outpassType: e.target.value }))}
+                    options={[
+                      { value: 'local', label: 'Local (Within City)' },
+                      { value: 'home', label: 'Home Visit' },
+                      { value: 'medical', label: 'Medical Emergency' },
+                      { value: 'special', label: 'Special Permission' }
+                    ]}
+                    glassmorphic
+                  />
+                  <Textarea
+                    label="Reason"
+                    value={editFormData.reason}
+                    onChange={(e) => setEditFormData(p => ({ ...p, reason: e.target.value }))}
+                    rows={3}
+                    required
+                    glassmorphic
+                  />
+                  <Input
+                    label="Destination"
+                    value={editFormData.destination}
+                    onChange={(e) => setEditFormData(p => ({ ...p, destination: e.target.value }))}
+                    required
+                    glassmorphic
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label="Departure Date" type="date" value={editFormData.departureDate}
+                      onChange={(e) => setEditFormData(p => ({ ...p, departureDate: e.target.value }))} required glassmorphic />
+                    <Input label="Departure Time" type="time" value={editFormData.departureTime}
+                      onChange={(e) => setEditFormData(p => ({ ...p, departureTime: e.target.value }))} required glassmorphic />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label="Return Date" type="date" value={editFormData.returnDate}
+                      onChange={(e) => setEditFormData(p => ({ ...p, returnDate: e.target.value }))} required glassmorphic />
+                    <Input label="Return Time" type="time" value={editFormData.returnTime}
+                      onChange={(e) => setEditFormData(p => ({ ...p, returnTime: e.target.value }))} required glassmorphic />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <Button type="button" variant="ghost" onClick={() => setEditingOutpass(null)} className="flex-1">
+                      Cancel
+                    </Button>
+                    <Button type="submit" loading={submitting} disabled={submitting} className="flex-1">
+                      Save Changes
+                    </Button>
+                  </div>
+                </form>
+              </Motion.div>
+            </div>
+          )}
       </Motion.div>
     </DashboardLayout>
   )

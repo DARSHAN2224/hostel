@@ -85,35 +85,35 @@ router.get('/can-request-outpass', authenticateToken, readLimiter, StudentContro
  * @desc    Get all students with filters
  * @access  Private (Admin, Warden, Security)
  */
-router.get('/', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, StudentController.getAllStudents)
+router.get('/', authenticateToken, authorize('admin', 'warden', 'security', 'counsellor', 'hod'), readLimiter, StudentController.getAllStudents)
 
 /**
  * @route   GET /api/v1/students/search
  * @desc    Search students
  * @access  Private (Admin, Warden, Security)
  */
-router.get('/search', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, validate(searchStudentsSchema, 'query'), StudentController.searchStudents)
+router.get('/search', authenticateToken, authorize('admin', 'warden', 'security', 'counsellor', 'hod'), readLimiter, validate(searchStudentsSchema, 'query'), StudentController.searchStudents)
 
 /**
  * @route   GET /api/v1/students/statistics
  * @desc    Get student statistics
  * @access  Private (Admin, Warden, Security)
  */
-router.get('/statistics', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, StudentController.getStatistics)
+router.get('/statistics', authenticateToken, authorize('admin', 'warden', 'security', 'counsellor', 'hod'), readLimiter, StudentController.getStatistics)
 
 /**
  * @route   GET /api/v1/students/by-student-id/:studentId
  * @desc    Get student by student ID
  * @access  Private (Admin, Warden, Security)
  */
-router.get('/by-student-id/:studentId', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, StudentController.getStudentByStudentId)
+router.get('/by-student-id/:studentId', authenticateToken, authorize('admin', 'warden', 'security', 'counsellor', 'hod'), readLimiter, StudentController.getStudentByStudentId)
 
 /**
  * @route   GET /api/v1/students/:id
  * @desc    Get student by ID
  * @access  Private (Admin, Warden, Security)
  */
-router.get('/:id', authenticateToken, authorize('admin', 'warden', 'security'), readLimiter, validate(studentIdSchema, 'params'), StudentController.getStudentById)
+router.get('/:id', authenticateToken, authorize('admin', 'warden', 'security', 'counsellor', 'hod'), readLimiter, validate(studentIdSchema, 'params'), StudentController.getStudentById)
 
 /**
  * @route   POST /api/v1/students/:id/suspend
@@ -135,5 +135,32 @@ router.post('/:id/activate', authenticateToken, authorize('admin', 'warden'), wr
  * @access  Private (Admin, Warden)
  */
 router.patch('/:id/parent-details', authenticateToken, authorize('admin', 'warden'), writeLimiter, validate(studentIdSchema, 'params'), validate(updateStudentParentDetailsSchema), StudentController.updateParentDetails)
+
+// Admin only: assign counsellor to student
+router.post(
+  '/:id/assign-counsellor',
+  authenticateToken,
+  authorize('admin'),
+  writeLimiter,
+  StudentController.assignCounsellor
+)
+
+// Admin only: assign HOD to student
+router.post(
+  '/:id/assign-hod',
+  authenticateToken,
+  authorize('admin'),
+  writeLimiter,
+  StudentController.assignHod
+)
+
+// Admin only: assign warden to student
+router.post(
+  '/:id/assign-warden',
+  authenticateToken,
+  authorize('admin'),
+  writeLimiter,
+  StudentController.assignWarden
+)
 
 export default router

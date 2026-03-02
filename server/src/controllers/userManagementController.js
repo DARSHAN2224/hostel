@@ -1,4 +1,4 @@
-import { Student, Warden, Admin, Security, Parent, Credential, AuditLog } from '../models/index.js'
+import { Student, Warden, Admin, Security, Parent, Credential, AuditLog, Counsellor } from '../models/index.js'
 import Hod from '../models/Hod.js'
 import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
@@ -17,6 +17,7 @@ const ModelMap = {
   hod: Hod,
   admin: Admin,
   security: Security,
+  counsellor: Counsellor,
   parent: Parent,
 }
 
@@ -32,7 +33,7 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
 
   // Authorization: who can create what
   const allowedByCreator = {
-    admin: ['student', 'parent', 'warden', 'security', 'admin'],
+    admin: ['student', 'parent', 'warden', 'security', 'admin', 'counsellor', 'hod'],
     warden: ['student', 'parent'],
   }
   const allowed = allowedByCreator[creatorRole] || []
@@ -50,6 +51,8 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     Admin.findOne({ email }),
     Security.findOne({ email }),
     Parent.findOne({ email }),
+    Counsellor.findOne({ email }),
+    Hod.findOne({ email }),
   ])
   if (exists.some(Boolean)) {
     return next(new AppError('User already exists with this email', 409))
@@ -103,6 +106,9 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
       permanentAddress,
       parentDetails: pd
     } = student;
+    // ADD after destructuring `student`:
+const { getHostelTypeFromBlock } = await import('../utils/constants.js')
+const derivedHostelType = getHostelTypeFromBlock(hostelBlock) || hostelType
     parentDetails = pd;
     // Find HOD for department
     let hod = await Hod.findOne({ department });
@@ -155,33 +161,38 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
         console.warn('Warden lookup failed for block:', blockRaw, 'counts:', counts)
       }
     }
-
+    // Find counsellor for this department
+    let counsellor = await Counsellor.findOne({ department, hostelType: derivedHostelType, status: 'active' })
+if (!counsellor) counsellor = await Counsellor.findOne({ department, hostelType: derivedHostelType })
+if (!counsellor) counsellor = await Counsellor.findOne({ department, status: 'active' })
+if (!counsellor) counsellor = await Counsellor.findOne({ department })
     // If either HOD or Warden is missing, refuse to create the student and instruct to contact admin
-    if (!hodId) {
-      return next(new AppError(`No HOD assigned for department '${department}'. Please contact the administrator to assign an HOD before creating students in this department.`, 400));
-    }
+    // if (!hodId) {
+    //   return next(new AppError(`No HOD assigned for department '${department}'. Please contact the administrator to assign an HOD before creating students in this department.`, 400));
+    // }
 
     if (!warden) {
       return next(new AppError(`No warden assigned for hostel block '${hostelBlock}'. Please contact the administrator to assign a warden before creating students in this block.`, 400));
     }
 
     userData = {
-      ...userData,
-      firstName,
-      lastName,
-      phone,
-      rollNumber,
-      course,
-      year,
-      yearOfStudy,
-      semester,
-      department,
-      hostelType,
-      hostelBlock,
-      roomNumber,
-      hodId,
-      wardenId: warden._id,
-    };
+  ...userData,
+  firstName,
+  lastName,
+  phone,
+  rollNumber,
+  course,
+  year,
+  yearOfStudy,
+  semester,
+  department,
+  hostelType: derivedHostelType,   // ← ONLY THIS LINE CHANGES
+  hostelBlock,
+  roomNumber,
+  hodId,
+  wardenId: warden._id,
+   ...(counsellor ? { counsellorId: counsellor._id } : {}), 
+};
 
     // Add optional fields only if provided
     if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
@@ -226,7 +237,31 @@ export const createUserManaged = asyncHandler(async (req, res, next) => {
     userData = { ...userData, firstName, lastName, phone }
     // employeeId/designation/shift/address/emergencyContact/joiningDate are intentionally omitted
   }
-
+ if (role === 'counsellor') {
+  const { firstName, lastName, phone, department,
+          hostelType: cHostelType, counsellorHostelType,
+          collegeHoursStart, collegeHoursEnd } = rest
+  const resolvedHostelType = cHostelType || counsellorHostelType
+  userData = {
+    ...userData,
+    firstName, lastName, phone, department,
+    ...(resolvedHostelType ? { hostelType: resolvedHostelType } : {}),
+    collegeHoursStart: collegeHoursStart || '09:00',
+    collegeHoursEnd:   collegeHoursEnd   || '17:00',
+  }
+  
+}
+if (role === 'hod') {
+  const { firstName, lastName, phone, department, hostelType } = rest
+  userData = {
+    ...userData,
+    firstName,
+    lastName,
+    phone,
+    department,
+    ...(hostelType ? { hostelType } : {})
+  }
+}
   // Enforce password presence for non-admin creators (warden must supply password)
   if (req.user?.role !== 'admin' && !userData.password) {
     return next(new AppError('Password is required when creating users (unless created by admin)', 400))
@@ -497,7 +532,7 @@ export const listUsers = asyncHandler(async (req, res) => {
     total = t
   } else {
     // Combine across roles (simple approach without global pagination)
-    const roles = ['student', 'warden', 'security', 'admin']
+    const roles = ['student', 'warden', 'security', 'admin', 'counsellor', 'hod']
     const perRoleLimit = Math.ceil(l / roles.length)
     const results = await Promise.all(roles.map(r => fetchByRole(r, 0, perRoleLimit)))
     data = results.flatMap(r => r.items)
@@ -709,21 +744,23 @@ export const resetPassword = asyncHandler(async (req, res, next) => {
 
 // GET /users/stats - counts per role and totals
 export const getUserStats = asyncHandler(async (req, res) => {
-  const [students, wardens, security, admins, hods] = await Promise.all([
+  const [students, wardens, security, admins,  counsellors, hods] = await Promise.all([
     Student.countDocuments({}),
     Warden.countDocuments({}),
     Security.countDocuments({}),
     Admin.countDocuments({}),
+    Counsellor.countDocuments({}),
     Hod.countDocuments({}),
   ])
 
-  const totalUsers = students + wardens + security + admins + hods
+  const totalUsers = students + wardens + security + admins + counsellors + hods
   res.json(new ApiResponse(200, {
     totalUsers,
     studentsCount: students,
     wardensCount: wardens,
     securityCount: security,
     hodCount: hods,
+    counsellorCount: counsellors,
   }, 'User stats'))
 })
 
@@ -741,8 +778,7 @@ export const updateUser = asyncHandler(async (req, res, next) => {
   ['firstName', 'lastName', 'name', 'email', 'phone', 'status', 'profileCompleted', 'mustChangePassword'].forEach(setIfPresent)
 
   if (role === 'student') {
-    // Student-specific fields (flattened on Student model)
-    ['rollNumber', 'registerNumber', 'course', 'year', 'yearOfStudy', 'semester', 'department', 'hostelType', 'hostelBlock', 'roomNumber', 'permanentAddress', 'parentDetails', 'emergencyContact', 'wardenId', 'hodId', 'dateOfBirth', 'gender'].forEach(setIfPresent)
+  ['rollNumber', 'registerNumber', 'course', 'year', 'yearOfStudy', 'semester', 'department', 'hostelType', 'hostelBlock', 'roomNumber', 'permanentAddress', 'parentDetails', 'emergencyContact', 'wardenId', 'hodId', 'counsellorId', 'dateOfBirth', 'gender'].forEach(setIfPresent)
     // parentDetails may be an object; allow full replacement
     if (req.body.parentDetails) updates.parentDetails = req.body.parentDetails
   }
@@ -760,7 +796,9 @@ export const updateUser = asyncHandler(async (req, res, next) => {
   if (role === 'admin' || role === 'parent') {
     ['address', 'emergencyContact', 'adminRole'].forEach(setIfPresent)
   }
-
+  if (role === 'counsellor') {
+  ['department', 'hostelType', 'collegeHoursStart', 'collegeHoursEnd'].forEach(setIfPresent)
+}
   // If no updatable fields were provided, return bad request
   if (Object.keys(updates).length === 0) return next(new AppError('No valid fields provided for update', 400))
 

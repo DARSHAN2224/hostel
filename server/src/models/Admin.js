@@ -326,8 +326,6 @@ adminSchema.pre('save', function(next) {
         this.permissions.canViewLogs = true
         this.reportAccess.canViewSecurityReports = true
         break
-        
-      
     }
   }
   next()
@@ -489,7 +487,8 @@ adminSchema.methods.logoutAllSessions = async function() {
   await this.save({ validateBeforeSave: false })
 }
 
-// Remove sensitive fields when converting to JSON
+// FIX: Guard twoFactorAuth before accessing sub-fields to prevent TypeError
+// when the subdoc is missing on older documents
 adminSchema.methods.toJSON = function() {
   const admin = this.toObject()
   delete admin.password
@@ -497,8 +496,10 @@ adminSchema.methods.toJSON = function() {
   delete admin.passwordResetExpires
   delete admin.emailVerificationToken
   delete admin.emailVerificationExpires
-  delete admin.twoFactorAuth.secret
-  delete admin.twoFactorAuth.backupCodes
+  if (admin.twoFactorAuth) {
+    delete admin.twoFactorAuth.secret
+    delete admin.twoFactorAuth.backupCodes
+  }
   delete admin.__v
   return admin
 }

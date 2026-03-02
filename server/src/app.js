@@ -22,12 +22,16 @@ import hodRoutes from './routes/hods.js'
 import outpassRoutes from './routes/outpass.js'
 import violationRoutes from './routes/violations.js'
 import auditLogRoutes from './routes/auditLogs.js'
+import { createServer } from 'node:http'
+import { initSocket } from './config/socket.js'
+import { socketAuthMiddleware } from './middleware/socketAuth.js'
+import { setupSocketHandlers } from './services/socketService.js'
 import wardenRoutes from './routes/wardens.js'
 import securityRoutes from './routes/security.js'
 import notificationRoutes from './routes/notifications.js'
 import parentRoutes from './routes/parents.js'
 import reportRoutes from './routes/reports.js'
-
+import counsellorRoutes from './routes/counsellors.js'
 // Load environment variables
 dotenv.config()
 
@@ -110,6 +114,7 @@ export function createApp() {
   app.use('/api/v1/audit-logs', auditLogRoutes)
   app.use('/api/v1/wardens', wardenRoutes)
   app.use('/api/v1/security', securityRoutes)
+  app.use('/api/v1/counsellors', counsellorRoutes)
   app.use('/api/v1/notifications', notificationRoutes)
   app.use('/api/v1/parents', parentRoutes)
   app.use('/api/v1/reports', reportRoutes)
@@ -139,7 +144,12 @@ export async function startServer() {
     
     // Create Express app
     const app = createApp()
-    const server = app.listen(config.port, () => {
+    const httpServer = createServer(app)
+    const io = initSocket(httpServer)
+    io.use(socketAuthMiddleware)
+    setupSocketHandlers(io)
+
+    const server = httpServer.listen(config.port, () => {
       logger.info(`🚀 Server running in ${config.nodeEnv} mode on port ${config.port}`)
       logger.info(`🌐 API available at: http://localhost:${config.port}`)
     })

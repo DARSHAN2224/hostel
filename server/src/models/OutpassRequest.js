@@ -112,7 +112,21 @@ const outpassRequestSchema = new mongoose.Schema({
     },
     comments: String
   },
-  
+  // Counsellor approval (required when outpass is during college hours)
+counsellorApprovalRequested: {
+  type: Boolean,
+  default: false
+},
+counsellor: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Counsellor'
+},
+counsellorApproval: {
+  approved:   { type: Boolean, default: false },
+  approvedAt: Date,
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Counsellor' },
+  comments:   String
+},
   // Parent Approval
   parentApproval: {
     approved: {
@@ -125,6 +139,12 @@ const outpassRequestSchema = new mongoose.Schema({
     },
     otpExpiresAt: {
       type: Date
+    },
+    requestedAt: {
+      type: Date
+    },
+    parentEmail: {
+      type: String
     },
     approvedAt: Date,
     parentContact: String,
@@ -148,7 +168,7 @@ const outpassRequestSchema = new mongoose.Schema({
   },
   rejectedByModel: {
     type: String,
-    enum: ['Warden', 'Admin']
+    enum: ['Warden', 'Admin', 'Counsellor']
   },
   
   // Security & Gate Management

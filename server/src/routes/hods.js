@@ -1,28 +1,34 @@
 import express from 'express';
 import hodController from '../controllers/hodController.js';
-import authMiddleware from '../middleware/auth.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Super admin creates HOD
-router.post('/create', authMiddleware, hodController.createHod);
+// Admin: create HOD
+router.post('/create', authenticateToken, hodController.createHod);
 
-// Super admin edits HOD
-router.put('/edit/:hodId', authMiddleware, hodController.editHod);
+// Admin: edit HOD by ID
+router.put('/edit/:hodId', authenticateToken, hodController.editHod);
 
-// Super admin deletes HOD
-router.delete('/delete/:hodId', authMiddleware, hodController.deleteHod);
+// Admin: delete HOD
+router.delete('/delete/:hodId', authenticateToken, hodController.deleteHod);
 
-// Super admin gets all HODs
-router.get('/all', authMiddleware, hodController.getAllHods);
+// Admin: get all HODs
+router.get('/all', authenticateToken, hodController.getAllHods);
 
-// HOD login
+// Public: HOD login
 router.post('/login', hodController.loginHod);
 
-// HOD gets own profile
-router.get('/profile', authMiddleware, hodController.getHodProfile);
+// HOD: get own profile
+router.get('/profile', authenticateToken, hodController.getHodProfile);
 
-// HOD gets students by department
-router.get('/students', authMiddleware, hodController.getStudentsByDepartment);
+// FIX 5: HOD updates their own profile (was calling PUT /hods/profile but route didn't exist)
+router.put('/profile', authenticateToken, hodController.updateHodProfile);
+
+// HOD: get students in their department
+router.get('/students', authenticateToken, hodController.getStudentsByDepartment);
+
+// FIX 6: HOD department statistics (was calling GET /hods/statistics but route didn't exist)
+router.get('/statistics', authenticateToken, hodController.getDepartmentStatistics);
 
 export default router;

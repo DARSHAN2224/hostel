@@ -1,10 +1,11 @@
 /**
- * Security Dashboard - Ultra Modern Gate Management
- * Real-time outpass verification and gate management interface
+ * Security Dashboard — Gate Management
+ * Auto-records exit on first QR scan, return on second scan (after 10-min cooldown).
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { motion as Motion } from 'framer-motion'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { motion as Motion, AnimatePresence } from 'framer-motion'
+import { useOutpassEvents } from '../../hooks/useSocket'
 import {
   QrCodeIcon,
   MagnifyingGlassIcon,
@@ -15,7 +16,9 @@ import {
   CalendarDaysIcon,
   SparklesIcon,
   ShieldCheckIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  UserGroupIcon,
+  XCircleIcon,
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Card'
@@ -27,203 +30,147 @@ import { LoadingCard } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import { formatDateTime } from '../../utils/helpers'
 import securityService from '../../services/securityService'
+import outpassService from '../../services/outpassService'
 import toast from 'react-hot-toast'
 import { Scanner } from '@yudiel/react-qr-scanner'
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function normalizeOutpass(o) {
+  if (!o) return null
+  const out = { ...o }
+  out._id = out._id?.$oid ?? (out._id?.toString?.() ?? out._id)
+  out.departureDateTime = out.departureDateTime || out.leaveTime
+  out.returnDateTime = out.returnDateTime || out.expectedReturnTime
+  out.exitTime = out.exitTime || out.gateEntry?.exitTime || null
+  out.returnTime = out.returnTime || out.gateEntry?.returnTime || null
+  out.student = out.student || {}
+  out.student.registerNumber =
+    out.student.registerNumber || out.student.rollNumber || out.rollNumber || ''
+  if (out.destination && typeof out.destination === 'object') {
+    out.destination = out.destination.place || JSON.stringify(out.destination)
+  }
+  return out
+}
+
+// ─── component ──────────────────────────────────────────────────────────────
 
 export default function SecurityDashboard() {
   const [loading, setLoading] = useState(true)
   const [activeOutpasses, setActiveOutpasses] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [stats, setStats] = useState({
-    activeOutpasses: 0,
-    exitedToday: 0,
-    returnedToday: 0,
-    overdueOutpasses: 0
+    studentsOut: 0,
+    exitsToday: 0,
+    returnsToday: 0,
+    overdueReturns: 0,
   })
-  const [selectedOutpass, setSelectedOutpass] = useState(null)
-  const [showVerifyModal, setShowVerifyModal] = useState(false)
-  const [actionType, setActionType] = useState('exit') // 'exit' or 'return'
-  const [manualCode, setManualCode] = useState('')
-  // QR scanning state is managed by the component; no explicit local state needed
 
-  const fetchSecurityData = useCallback(async () => {
+  // Manual code input
+  const [manualCode, setManualCode] = useState('')
+
+  // Scan state — prevent duplicate scans with a cooldown ref
+  const scanCooldown = useRef(false)
+
+  // Last scan result (shown as a toast-style banner under the scanner)
+  const [lastScan, setLastScan] = useState(null) // { action, name, message, isError }
+
+  // Manual confirm modal (for the list row buttons — not for QR auto-scan)
+  const [selectedOutpass, setSelectedOutpass] = useState(null)
+  const [actionType, setActionType] = useState('exit')
+  const [showVerifyModal, setShowVerifyModal] = useState(false)
+
+  // ── fetch ──────────────────────────────────────────────────────────────────
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      
-      // Fetch active outpasses
-      const response = await securityService.getActiveOutpasses()
-      const outpasses = response?.data?.data || response?.data?.outpasses || []
-      // Ensure minimal normalization so the UI won't crash if server shape varies
-      const safeOutpasses = (outpasses || []).map(orig => {
-        const o = { ...orig }
-        try {
-          if (o._id && o._id.$oid) o._id = o._id.$oid
-          else if (o._id && o._id.toString) o._id = o._id.toString()
-        } catch (err) { console.debug('safeOutpasses id conversion failed', err) }
-        o.student = o.student || {}
-        o.student.firstName = o.student.firstName || o.student.firstname || ''
-        o.student.lastName = o.student.lastName || o.student.lastname || ''
-        o.student.registerNumber = o.student.registerNumber || o.student.rollNumber || o.studentId || o.rollNumber || ''
-        o.student.hostelBlock = o.student.hostelBlock || o.student.hostel_block || ''
-        if (o.destination && typeof o.destination === 'object') o.destination = o.destination.place || JSON.stringify(o.destination)
-        o.departureDateTime = o.departureDateTime || o.leaveTime || null
-        o.returnDateTime = o.returnDateTime || o.expectedReturnTime || null
-        o.exitTime = o.exitTime || (o.gateEntry && o.gateEntry.exitTime) || null
-        o.returnTime = o.returnTime || (o.gateEntry && o.gateEntry.returnTime) || null
-        return o
-      })
-      
-      // Calculate stats from the data
-      const now = new Date()
-      const todayStart = new Date(now.setHours(0, 0, 0, 0))
-      
-      const exitedToday = outpasses.filter(o => 
-        o.exitTime && new Date(o.exitTime) >= todayStart
-      ).length
-      
-      const returnedToday = outpasses.filter(o => 
-        o.returnTime && new Date(o.returnTime) >= todayStart
-      ).length
-      
-      const overdueOutpasses = outpasses.filter(o => 
-        !o.returnTime && new Date(o.returnDateTime) < now
-      ).length
-      
-      setStats({
-        activeOutpasses: outpasses.filter(o => !o.returnTime).length,
-        exitedToday,
-        returnedToday,
-        overdueOutpasses
-      })
-      
-      setActiveOutpasses(safeOutpasses)
-      setLoading(false)
-    } catch (error) {
-      console.error('Failed to fetch security data:', error)
+
+      const [statsRes, outpassRes] = await Promise.allSettled([
+        securityService.getDashboardStats(),
+        securityService.getActiveOutpasses(),
+      ])
+
+      if (statsRes.status === 'fulfilled') {
+        const d = statsRes.value?.data?.data || statsRes.value?.data || {}
+        setStats({
+          studentsOut: d.studentsOut ?? 0,
+          exitsToday: d.exitsToday ?? 0,
+          returnsToday: d.returnsToday ?? 0,
+          overdueReturns: d.overdueReturns ?? 0,
+        })
+      }
+
+      if (outpassRes.status === 'fulfilled') {
+        const raw = outpassRes.value?.data?.data?.outpasses || outpassRes.value?.data?.outpasses || []
+        setActiveOutpasses(raw.map(normalizeOutpass))
+      }
+    } catch (err) {
+      console.error('fetchData error', err)
       toast.error('Failed to load security data')
+    } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    fetchSecurityData()
-  }, [fetchSecurityData])
+  useEffect(() => { fetchData() }, [fetchData])
+  useOutpassEvents({
+  onExit:   () => fetchData(),
+  onReturn: () => fetchData(),
+  onDashboardRefresh: () => fetchData(),
+})
 
-  const filteredOutpasses = activeOutpasses.filter(outpass => {
-    const student = outpass.student || {}
-    const q = (searchQuery || '').toLowerCase()
-    return (
-      (student.firstName || '').toLowerCase().includes(q) ||
-      (student.lastName || '').toLowerCase().includes(q) ||
-      (student.registerNumber || '').toLowerCase().includes(q)
-    )
-  })
+  // ── auto-scan handler ──────────────────────────────────────────────────────
+  /**
+   * Called by the QR Scanner component or the manual input button.
+   * Calls POST /api/v1/security/scan which auto-decides exit vs return.
+   */
+  const handleScan = useCallback(async (code) => {
+    if (!code || scanCooldown.current) return
+    scanCooldown.current = true
 
-  const resolveOutpassFromCode = (code) => {
     try {
-      // Accept raw id, JSON string, base64 payload, or known keys
-      let payload = code
+      const resp = await securityService.scanOutpass(code)
+      const { action, outpass, message } = resp?.data?.data || resp?.data || {}
+      const name = outpass?.student
+        ? `${outpass.student.firstName} ${outpass.student.lastName}`
+        : 'Student'
 
-      // If base64 encoded JSON was pasted (common for QR payloads), attempt decode
-      if (typeof code === 'string') {
-        const txt = code.trim()
-        // base64 detection: fairly loose check
-        if (/^[A-Za-z0-9+/=\s]+$/.test(txt) && txt.length % 4 === 0) {
-          try {
-            const decoded = atob(txt)
-            if (decoded && decoded.trim().startsWith('{')) payload = decoded
-          } catch {
-            console.debug('resolveOutpassFromCode: not valid base64')
-          }
-        }
-
-        if (typeof payload === 'string' && payload.trim().startsWith('{')) {
-          try { payload = JSON.parse(payload) } catch (err) { console.debug('resolveOutpassFromCode JSON parse failed', err) }
-        }
+      if (action === 'exit') {
+        toast.success(`✅ EXIT recorded — ${name}`, { duration: 4000 })
+        setLastScan({ action, name, message: `Exit at ${new Date().toLocaleTimeString()}`, isError: false })
+      } else if (action === 'return') {
+        toast.success(`🏠 RETURN recorded — ${name}`, { duration: 4000 })
+        setLastScan({ action, name, message: `Returned at ${new Date().toLocaleTimeString()}`, isError: false })
+      } else if (action === 'too_soon') {
+        const rem = resp?.data?.data?.remainingMinutes ?? '?'
+        toast.error(`⏳ Too soon — return allowed in ${rem} min`, { duration: 5000 })
+        setLastScan({ action, name, message: `Return blocked — ${rem} min remaining`, isError: true })
+      } else if (action === 'already_completed') {
+        toast(`ℹ️ Outpass already completed for ${name}`, { duration: 3000 })
+        setLastScan({ action, name, message: 'Already completed', isError: false })
       }
 
-      // Candidates for id: payload string, payload._id, payload.id, payload.requestId, payload.outpassId
-      const candidates = []
-      if (typeof payload === 'string') candidates.push(payload)
-      if (payload && typeof payload === 'object') {
-        if (payload._id) candidates.push(String(payload._id))
-        if (payload.id) candidates.push(String(payload.id))
-        if (payload.requestId) candidates.push(String(payload.requestId))
-        if (payload.outpassId) candidates.push(String(payload.outpassId))
-        if (payload.request_id) candidates.push(String(payload.request_id))
-      }
-
-      // Try to match any candidate against the currently loaded active outpasses
-      for (const c of candidates) {
-        if (!c) continue
-        const found = activeOutpasses.find(o => String(o._id) === String(c) || String(o.requestId) === String(c))
-        if (found) return found
-      }
-
-      return null
-    } catch {
-      return null
+      fetchData()
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Scan failed'
+      toast.error(msg, { duration: 4000 })
+      setLastScan({ action: 'error', name: '', message: msg, isError: true })
+    } finally {
+      // Allow next scan after 3 seconds
+      setTimeout(() => { scanCooldown.current = false }, 3000)
     }
-  }
+  }, [fetchData])
 
-    const normalizeOutpassForClient = (o) => {
-      if (!o) return null
-      const out = { ...o }
-      // ensure _id is string
-      try {
-        if (out._id && out._id.$oid) out._id = out._id.$oid
-        else if (out._id && out._id.toString) out._id = out._id.toString()
-      } catch (err) { console.debug('normalizeOutpassForClient id conversion failed', err) }
-
-      out.departureDateTime = out.departureDateTime || out.leaveTime || out.departureDateTime || null
-      out.returnDateTime = out.returnDateTime || out.expectedReturnTime || out.returnDateTime || null
-      out.exitTime = out.exitTime || (out.gateEntry && out.gateEntry.exitTime) || null
-      out.returnTime = out.returnTime || (out.gateEntry && out.gateEntry.returnTime) || null
-
-      out.student = out.student || {}
-      out.student.firstName = out.student.firstName || out.student.firstname || ''
-      out.student.lastName = out.student.lastName || out.student.lastname || ''
-      out.student.registerNumber = out.student.registerNumber || out.student.rollNumber || out.studentId || out.rollNumber || ''
-      out.student.hostelBlock = out.student.hostelBlock || out.student.hostel_block || ''
-
-      // Normalize destination: sometimes stored as object {place: '...'}
-      if (out.destination && typeof out.destination === 'object') {
-        out.destination = out.destination.place || JSON.stringify(out.destination)
-      }
-
-      return out
-    }
-
-  const handleScanResult = (result) => {
+  const handleQRScan = useCallback((result) => {
     if (!result) return
-    const text = Array.isArray(result) ? result[0]?.rawValue || result[0]?.text : result.rawValue || result.text || String(result)
-    ;(async () => {
-      let found = resolveOutpassFromCode(text)
-      if (!found) {
-        try {
-          console.debug('security.verifyOutpass - sending code:', text)
-          const resp = await securityService.verifyOutpass(text)
-          const serverOut = resp?.data || resp
-          if (serverOut) found = normalizeOutpassForClient(serverOut)
-        } catch (err) {
-          console.error('verifyOutpass error', err)
-          const msg = err?.message || err?.data?.message || 'Server error'
-          toast.error(msg)
-        }
-      }
+    const text = Array.isArray(result)
+      ? result[0]?.rawValue || result[0]?.text || ''
+      : result.rawValue || result.text || String(result)
+    if (text) handleScan(text)
+  }, [handleScan])
 
-      if (found) {
-        setSelectedOutpass(found)
-        setActionType(!found.exitTime ? 'exit' : 'return')
-        setShowVerifyModal(true)
-        toast.success('QR recognized')
-      } else {
-        toast.error('QR not recognized for any active outpass')
-      }
-    })()
-  }
-
-  const handleVerifyAction = (outpass, type) => {
+  // ── manual row actions (still uses confirm modal) ──────────────────────────
+  const handleRowAction = (outpass, type) => {
     setSelectedOutpass(outpass)
     setActionType(type)
     setShowVerifyModal(true)
@@ -232,62 +179,44 @@ export default function SecurityDashboard() {
   const handleConfirmAction = async () => {
     try {
       if (actionType === 'exit') {
-        console.debug('security.recordExit - outpassId', selectedOutpass._id)
-        await securityService.recordExit(selectedOutpass._id)
-        toast.success(`Exit recorded for ${selectedOutpass.student.firstName} ${selectedOutpass.student.lastName}`)
+        await outpassService.recordExit(selectedOutpass._id)
+        toast.success(`Exit recorded — ${selectedOutpass.student.firstName}`)
       } else {
-        console.debug('security.recordReturn - outpassId', selectedOutpass._id)
-        await securityService.recordReturn(selectedOutpass._id)
-        toast.success(`Return recorded for ${selectedOutpass.student.firstName} ${selectedOutpass.student.lastName}`)
+        await outpassService.recordReturn(selectedOutpass._id)
+        toast.success(`Return recorded — ${selectedOutpass.student.firstName}`)
       }
-      
       setShowVerifyModal(false)
       setSelectedOutpass(null)
-      fetchSecurityData() // Refresh the data
-    } catch (error) {
-      console.error(`Failed to record ${actionType}:`, error)
-      toast.error(error.message || error?.response?.data?.message || `Failed to record ${actionType}`)
+      fetchData()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || `Failed to record ${actionType}`)
     }
   }
 
+  // ── filter ─────────────────────────────────────────────────────────────────
+  const filtered = activeOutpasses.filter(o => {
+    const s = o.student || {}
+    const q = searchQuery.toLowerCase()
+    return (
+      (s.firstName || '').toLowerCase().includes(q) ||
+      (s.lastName || '').toLowerCase().includes(q) ||
+      (s.registerNumber || '').toLowerCase().includes(q)
+    )
+  })
+
+  // ── stat cards ─────────────────────────────────────────────────────────────
   const statCards = [
-    {
-      title: 'Active Outpasses',
-      value: stats.activeOutpasses,
-      icon: ClockIcon,
-      gradient: 'from-blue-500 to-cyan-500',
-      bgColor: 'bg-blue-50 dark:bg-blue-900/20'
-    },
-    {
-      title: 'Exited Today',
-      value: stats.exitedToday,
-      icon: ArrowRightEndOnRectangleIcon,
-      gradient: 'from-orange-500 to-red-500',
-      bgColor: 'bg-orange-50 dark:bg-orange-900/20'
-    },
-    {
-      title: 'Returned Today',
-      value: stats.returnedToday,
-      icon: ArrowLeftStartOnRectangleIcon,
-      gradient: 'from-green-500 to-emerald-500',
-      bgColor: 'bg-green-50 dark:bg-green-900/20'
-    },
-    {
-      title: 'Overdue',
-      value: stats.overdueOutpasses,
-      icon: ExclamationTriangleIcon,
-      gradient: 'from-red-500 to-pink-500',
-      bgColor: 'bg-red-50 dark:bg-red-900/20'
-    }
+    { title: 'Students Out Now', value: stats.studentsOut, icon: UserGroupIcon, gradient: 'from-blue-500 to-cyan-500', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    { title: 'Exited Today', value: stats.exitsToday, icon: ArrowRightEndOnRectangleIcon, gradient: 'from-orange-500 to-red-500', bg: 'bg-orange-50 dark:bg-orange-900/20' },
+    { title: 'Returned Today', value: stats.returnsToday, icon: ArrowLeftStartOnRectangleIcon, gradient: 'from-green-500 to-emerald-500', bg: 'bg-green-50 dark:bg-green-900/20' },
+    { title: 'Overdue Returns', value: stats.overdueReturns, icon: ExclamationTriangleIcon, gradient: 'from-red-500 to-pink-500', bg: 'bg-red-50 dark:bg-red-900/20' },
   ]
 
+  // ── render ─────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
-      <Motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="space-y-6"
-      >
+      <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+
         {/* Header */}
         <Motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -301,42 +230,27 @@ export default function SecurityDashboard() {
           <div className="relative flex items-center gap-4">
             <SparklesIcon className="h-12 w-12 text-white animate-pulse" />
             <div>
-              <h1 className="text-3xl font-display font-bold text-white">
-                Security Dashboard
-              </h1>
+              <h1 className="text-3xl font-display font-bold text-white">Security Dashboard</h1>
               <p className="mt-1 text-lg text-white/90">
-                Gate management and outpass verification 🛡️
+                Gate management — scan QR to auto-record exit / return 🛡️
               </p>
             </div>
           </div>
         </Motion.div>
 
-        {/* Stats Grid */}
+        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {statCards.map((stat, index) => (
-            <Motion.div
-              key={stat.title}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-            >
+          {statCards.map((s, i) => (
+            <Motion.div key={s.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
               <Card glassmorphic hover className="h-full">
                 <CardContent>
                   <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                        {stat.title}
-                      </p>
-                      <h3 className={`text-3xl font-bold bg-gradient-to-r ${stat.gradient} bg-clip-text text-transparent`}>
-                        {stat.value}
-                      </h3>
+                    <div>
+                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">{s.title}</p>
+                      <h3 className={`text-3xl font-bold bg-gradient-to-r ${s.gradient} bg-clip-text text-transparent`}>{s.value}</h3>
                     </div>
-                    <Motion.div
-                      className={`p-3 rounded-xl ${stat.bgColor}`}
-                      whileHover={{ scale: 1.1, rotate: 360 }}
-                      transition={{ duration: 0.6 }}
-                    >
-                      <stat.icon className={`h-6 w-6`} />
+                    <Motion.div className={`p-3 rounded-xl ${s.bg}`} whileHover={{ scale: 1.1, rotate: 360 }} transition={{ duration: 0.5 }}>
+                      <s.icon className="h-6 w-6" />
                     </Motion.div>
                   </div>
                 </CardContent>
@@ -345,223 +259,221 @@ export default function SecurityDashboard() {
           ))}
         </div>
 
-        {/* Quick Verification */}
-        <Motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
+        {/* QR Scanner */}
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
           <Card glassmorphic gradient>
             <CardHeader>
-              <CardTitle gradient icon={QrCodeIcon}>Quick Verification</CardTitle>
+              <CardTitle gradient icon={QrCodeIcon}>QR Scanner — Auto Exit / Return</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                {/* Left: manual input */}
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 text-sm text-orange-900 dark:text-orange-100 space-y-1">
+                    <p className="font-semibold">How it works:</p>
+                    <p>🔴 <strong>1st scan</strong> → Exit recorded automatically</p>
+                    <p>🟢 <strong>2nd scan</strong> (after 10 min) → Return recorded automatically</p>
+                    <p>⏳ Scanning within 10 min shows a cooldown message</p>
+                  </div>
+
                   <Input
-                    placeholder="Scan QR or paste code / outpass id..."
+                    placeholder="Paste outpass ID or QR code text..."
                     icon={QrCodeIcon}
                     glassmorphic
                     value={manualCode}
-                    onChange={(e)=>setManualCode(e.target.value)}
+                    onChange={e => setManualCode(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && manualCode.trim()) { handleScan(manualCode.trim()); setManualCode('') } }}
                   />
-                  <div className="flex gap-3">
-                    <Button variant="outline" onClick={()=>{
-                      ;(async () => {
-                        let found = resolveOutpassFromCode(manualCode)
-                        if (!found) {
-                          try {
-                            console.debug('security.verifyOutpass - sending code:', manualCode)
-                            const resp = await securityService.verifyOutpass(manualCode)
-                            const serverOut = resp?.data || resp
-                            if (serverOut) found = normalizeOutpassForClient(serverOut)
-                          } catch (err) {
-                            console.error('verifyOutpass error', err)
-                            const msg = err?.message || err?.data?.message || 'Server error'
-                            toast.error(msg)
-                          }
-                        }
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => { if (manualCode.trim()) { handleScan(manualCode.trim()); setManualCode('') } }}
+                  >
+                    <ShieldCheckIcon className="h-4 w-4 mr-2" />
+                    Scan Manual Code
+                  </Button>
 
-                        if(found){ setSelectedOutpass(found); setActionType(!found.exitTime? 'exit':'return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
-                      })()
-                    }} className="flex-1">
-                      Verify Code
-                    </Button>
-                    <Button variant="success" icon={ArrowRightEndOnRectangleIcon} onClick={()=>{
-                      ;(async () => {
-                        let found = resolveOutpassFromCode(manualCode)
-                        if (!found) {
-                          try {
-                            console.debug('security.verifyOutpass - sending code:', manualCode)
-                            const resp = await securityService.verifyOutpass(manualCode)
-                            const serverOut = resp?.data || resp
-                            if (serverOut) found = normalizeOutpassForClient(serverOut)
-                          } catch (err) {
-                            console.error('verifyOutpass error', err)
-                            const msg = err?.message || err?.data?.message || 'Server error'
-                            toast.error(msg)
-                          }
-                        }
-
-                        if(found){ setSelectedOutpass(found); setActionType('exit'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
-                      })()
-                    }} className="flex-1">
-                      Record Exit
-                    </Button>
-                    <Button variant="primary" icon={ArrowLeftStartOnRectangleIcon} onClick={()=>{
-                      ;(async () => {
-                        let found = resolveOutpassFromCode(manualCode)
-                        if (!found) {
-                          try {
-                            const resp = await securityService.verifyOutpass(manualCode)
-                            const serverOut = resp?.data || resp
-                            if (serverOut) found = normalizeOutpassForClient(serverOut)
-                          } catch (err) {
-                            console.error('verifyOutpass error', err)
-                            const msg = err?.message || err?.data?.message || 'Server error'
-                            toast.error(msg)
-                          }
-                        }
-
-                        if(found){ setSelectedOutpass(found); setActionType('return'); setShowVerifyModal(true);} else { toast.error('No matching active outpass'); }
-                      })()
-                    }} className="flex-1">
-                      Record Return
-                    </Button>
-                  </div>
+                  {/* Last scan result banner */}
+                  <AnimatePresence>
+                    {lastScan && (
+                      <Motion.div
+                        key={lastScan.message}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className={`p-3 rounded-xl flex items-start gap-3 text-sm ${
+                          lastScan.isError
+                            ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-100'
+                            : lastScan.action === 'exit'
+                            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-900 dark:text-green-100'
+                            : 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-100'
+                        }`}
+                      >
+                        {lastScan.isError
+                          ? <XCircleIcon className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                          : <CheckCircleIcon className="h-5 w-5 flex-shrink-0 mt-0.5" />}
+                        <div>
+                          <p className="font-semibold">{lastScan.name || 'Last scan'}</p>
+                          <p>{lastScan.message}</p>
+                        </div>
+                      </Motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
+
+                {/* Right: camera scanner */}
                 <div className="p-2 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-xl border-2 border-dashed border-orange-300 dark:border-orange-700">
-                  <div className="text-center mb-2 text-sm text-slate-700 dark:text-slate-300">Scan QR Code</div>
+                  <p className="text-center text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Point camera at student QR code
+                  </p>
                   <div className="rounded-xl overflow-hidden">
                     <Scanner
-                      onScan={(result) => handleScanResult(result)}
-                      onError={(error) => console.error(error)}
+                      onScan={handleQRScan}
+                      onError={err => console.error('QR scanner error:', err)}
                       components={{ finder: true, torch: true, onOff: true, zoom: true }}
-                      scanDelay={200}
+                      scanDelay={300}
                     />
                   </div>
+                  <p className="text-center text-xs text-slate-500 dark:text-slate-400 mt-2">
+                    Works with phone camera or external QR scanner
+                  </p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </Motion.div>
 
-        {/* Active Outpasses */}
-        <Motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-        >
+        {/* Active Outpasses list */}
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
           <Card glassmorphic gradient>
             <CardHeader>
-              <CardTitle gradient icon={ShieldCheckIcon}>Active Outpasses</CardTitle>
+              <CardTitle gradient icon={ShieldCheckIcon}>
+                Approved Outpasses ({filtered.length})
+              </CardTitle>
               <div className="mt-4">
                 <Input
                   placeholder="Search by name or register number..."
                   icon={MagnifyingGlassIcon}
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={e => setSearchQuery(e.target.value)}
                   glassmorphic
                 />
               </div>
             </CardHeader>
             <CardContent>
               {loading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map(i => <LoadingCard key={i} />)}
-                </div>
-              ) : filteredOutpasses.length === 0 ? (
-                <EmptyState
-                  icon={ShieldCheckIcon}
-                  title="No active outpasses"
-                  description="All students are currently in the hostel"
-                />
+                <div className="space-y-4">{[1, 2, 3].map(i => <LoadingCard key={i} />)}</div>
+              ) : filtered.length === 0 ? (
+                <EmptyState icon={ShieldCheckIcon} title="No approved outpasses" description="All students are currently in the hostel" />
               ) : (
-                <div className="space-y-4">
-                  {filteredOutpasses.map((outpass, index) => (
-                    <Motion.div
-                      key={outpass._id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      whileHover={{ x: 4, scale: 1.01 }}
-                      className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-orange-300 dark:hover:border-orange-700 transition-all duration-200"
-                    >
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-4 flex-1">
-                          {/* Student Avatar */}
-                          <Motion.div
-                            whileHover={{ scale: 1.1, rotate: 360 }}
-                            transition={{ duration: 0.5 }}
-                            className="relative"
-                          >
-                            <div className="absolute inset-0 bg-gradient-to-br from-orange-500 to-red-500 rounded-full blur opacity-50" />
-                            <div className="relative h-14 w-14 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg">
-                              <span className="text-xl font-bold text-white">
-                                {outpass.student.firstName.charAt(0)}
-                              </span>
-                            </div>
-                          </Motion.div>
+                <div className="space-y-3">
+                  {filtered.map((outpass, idx) => {
+                    const isOut = !!outpass.exitTime
+                    const isCompleted = !!outpass.returnTime
+                    const isOverdue =
+                      isOut && !isCompleted &&
+                      outpass.returnDateTime &&
+                      new Date(outpass.returnDateTime) < new Date()
 
-                          {/* Student Info */}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold text-slate-900 dark:text-white">
-                                {outpass.student.firstName} {outpass.student.lastName}
-                              </h4>
-                              <Badge variant="default">{outpass.student.registerNumber}</Badge>
-                              <Badge variant="default">Block {outpass.student.hostelBlock}</Badge>
-                            </div>
-                            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
-                              {outpass.reason}
-                            </p>
-                            <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
-                              <div className="flex items-center gap-1">
-                                <CalendarDaysIcon className="h-3.5 w-3.5" />
-                                <span>Depart: {formatDateTime(outpass.departureDateTime)}</span>
+                    return (
+                      <Motion.div
+                        key={outpass._id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.04 }}
+                        whileHover={{ x: 4 }}
+                        className={`p-4 rounded-xl border transition-all duration-200 ${
+                          isOverdue
+                            ? 'bg-red-50/50 dark:bg-red-900/10 border-red-300 dark:border-red-700'
+                            : isCompleted
+                            ? 'bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800'
+                            : 'bg-white/50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:border-orange-300 dark:hover:border-orange-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            {/* Avatar */}
+                            <div className="relative flex-shrink-0">
+                              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow">
+                                <span className="text-lg font-bold text-white">
+                                  {(outpass.student.firstName || '?').charAt(0)}
+                                </span>
                               </div>
-                              <div className="flex items-center gap-1">
-                                <CalendarDaysIcon className="h-3.5 w-3.5" />
-                                <span>Return: {formatDateTime(outpass.returnDateTime)}</span>
+                              {isOut && !isCompleted && (
+                                <span className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${isOverdue ? 'bg-red-500' : 'bg-orange-400'}`} />
+                              )}
+                            </div>
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className="font-semibold text-slate-900 dark:text-white truncate">
+                                  {outpass.student.firstName} {outpass.student.lastName}
+                                </span>
+                                <Badge variant="default">{outpass.student.registerNumber}</Badge>
+                                {outpass.student.hostelBlock && <Badge variant="default">Block {outpass.student.hostelBlock}</Badge>}
+                                {isOverdue && <Badge variant="danger">Overdue</Badge>}
+                                {isCompleted && <Badge variant="success">Completed</Badge>}
+                                {isOut && !isCompleted && !isOverdue && <Badge variant="warning">Out</Badge>}
+                              </div>
+                              <p className="text-sm text-slate-600 dark:text-slate-400 truncate">{outpass.reason}</p>
+                              <div className="flex gap-4 text-xs text-slate-500 mt-1 flex-wrap">
+                                <span className="flex items-center gap-1">
+                                  <ArrowRightEndOnRectangleIcon className="h-3 w-3" />
+                                  Leave: {formatDateTime(outpass.departureDateTime)}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <ArrowLeftStartOnRectangleIcon className="h-3 w-3" />
+                                  Return: {formatDateTime(outpass.returnDateTime)}
+                                </span>
+                                {outpass.exitTime && (
+                                  <span className="flex items-center gap-1 text-orange-600">
+                                    <ClockIcon className="h-3 w-3" />
+                                    Exited: {formatDateTime(outpass.exitTime)}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* Actions */}
-                        <div className="flex items-center gap-2">
-                          {!outpass.exitTime ? (
-                            <Button
-                              variant="success"
-                              icon={ArrowRightEndOnRectangleIcon}
-                              onClick={() => handleVerifyAction(outpass, 'exit')}
-                            >
-                              Mark Exit
-                            </Button>
-                          ) : !outpass.returnTime ? (
-                            <Button
-                              variant="primary"
-                              icon={ArrowLeftStartOnRectangleIcon}
-                              onClick={() => handleVerifyAction(outpass, 'return')}
-                            >
-                              Mark Return
-                            </Button>
-                          ) : (
-                            <Badge variant="success" icon={CheckCircleIcon}>
-                              Completed
-                            </Badge>
-                          )}
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {isCompleted ? (
+                              <Badge variant="success" className="flex items-center gap-1">
+                                <CheckCircleIcon className="h-3.5 w-3.5" /> Done
+                              </Badge>
+                            ) : !isOut ? (
+                              <Button
+                                variant="success"
+                                icon={ArrowRightEndOnRectangleIcon}
+                                onClick={() => handleRowAction(outpass, 'exit')}
+                                size="sm"
+                              >
+                                Mark Exit
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="primary"
+                                icon={ArrowLeftStartOnRectangleIcon}
+                                onClick={() => handleRowAction(outpass, 'return')}
+                                size="sm"
+                              >
+                                Mark Return
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </Motion.div>
-                  ))}
+                      </Motion.div>
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
         </Motion.div>
 
-        {/* Verification Modal */}
+        {/* Manual row confirm modal */}
         <Modal
           isOpen={showVerifyModal}
           onClose={() => setShowVerifyModal(false)}
@@ -570,7 +482,6 @@ export default function SecurityDashboard() {
         >
           {selectedOutpass && (
             <div className="space-y-4">
-              {/* Student Card */}
               <div className="p-4 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-xl">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="h-12 w-12 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
@@ -579,53 +490,33 @@ export default function SecurityDashboard() {
                     </span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-slate-900 dark:text-white">
+                    <p className="font-bold text-slate-900 dark:text-white">
                       {selectedOutpass.student.firstName} {selectedOutpass.student.lastName}
-                    </h4>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {selectedOutpass.student.registerNumber}
                     </p>
+                    <p className="text-sm text-slate-500">{selectedOutpass.student.registerNumber}</p>
                   </div>
                 </div>
-                <div className="space-y-2 text-sm">
+                <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-600 dark:text-slate-400">Block:</span>
-                    <span className="font-medium text-slate-900 dark:text-white">
-                      {selectedOutpass.student.hostelBlock}
-                    </span>
+                    <span className="text-slate-500">Destination:</span>
+                    <span className="font-medium">{selectedOutpass.destination || '—'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-600 dark:text-slate-400">Destination:</span>
-                    <span className="font-medium text-slate-900 dark:text-white">
-                      {selectedOutpass.destination}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600 dark:text-slate-400">
-                      {actionType === 'exit' ? 'Departure' : 'Expected Return'}:
-                    </span>
-                    <span className="font-medium text-slate-900 dark:text-white">
-                      {formatDateTime(actionType === 'exit' ? selectedOutpass.departureDateTime : selectedOutpass.returnDateTime)}
-                    </span>
+                    <span className="text-slate-500">Expected return:</span>
+                    <span className="font-medium">{formatDateTime(selectedOutpass.returnDateTime)}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl">
-                <ShieldCheckIcon className="h-5 w-5 text-orange-600 dark:text-orange-400 flex-shrink-0" />
-                <p className="text-sm text-orange-900 dark:text-orange-100">
-                  Confirm that the student is {actionType === 'exit' ? 'leaving' : 'entering'} the hostel premises.
+              <div className="flex items-center gap-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl text-sm text-orange-900 dark:text-orange-100">
+                <ShieldCheckIcon className="h-5 w-5 flex-shrink-0" />
+                <p>
+                  Confirm student is {actionType === 'exit' ? 'leaving' : 'entering'} the hostel premises.
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 pt-4">
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowVerifyModal(false)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
+              <div className="flex gap-3 pt-2">
+                <Button variant="ghost" onClick={() => setShowVerifyModal(false)} className="flex-1">Cancel</Button>
                 <Button
                   variant={actionType === 'exit' ? 'success' : 'primary'}
                   icon={actionType === 'exit' ? ArrowRightEndOnRectangleIcon : ArrowLeftStartOnRectangleIcon}

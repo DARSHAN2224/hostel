@@ -7,6 +7,7 @@ export { default as Parent } from './Parent.js'
 export { default as OutpassRequest } from './OutpassRequest.js'
 export { default as OutpassLog } from './OutpassLog.js'
 export { default as Hod } from './Hod.js'
+export { default as Counsellor } from './Counsellor.js'
 export { default as Violation } from './Violation.js'
 export { default as AuditLog } from './AuditLog.js'
 export { default as Notification } from './Notification.js'
@@ -25,7 +26,7 @@ import Violation from './Violation.js'
 import AuditLog from './AuditLog.js'
 import Notification from './Notification.js'
 import Credential from './Credential.js'
-
+import Counsellor from './Counsellor.js'
 // Default export for convenience
 export default {
   Student,
@@ -36,6 +37,7 @@ export default {
   OutpassRequest,
   OutpassLog,
   Hod,
+  Counsellor,
   Violation,
   AuditLog,
   Notification,

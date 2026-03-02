@@ -28,7 +28,18 @@ export const securityService = {
   },
 
   /**
-   * Verify outpass by QR code or manual code
+   * PRIMARY scan — auto-records exit on 1st scan, return on 2nd (after 10 min cooldown).
+   * Handles plain JSON QR  {"type":"outpass","outpassId":"..."}  as well as raw IDs.
+   * @param {string} code - QR text, plain JSON string, or outpass ID
+   * @param {Object} extra - optional { gateName, remarks }
+   * @returns {Promise} { action: 'exit'|'return'|'too_soon'|'already_completed', outpass, message }
+   */
+  scanOutpass: async (code, extra = {}) => {
+    return await apiClient.post('/security/scan', { code, ...extra })
+  },
+
+  /**
+   * Verify outpass by QR code or manual code (no recording)
    * @param {string} code - QR code or outpass ID
    * @returns {Promise}
    */
@@ -106,7 +117,27 @@ export const securityService = {
 
     return await apiClient.get(`/security/returned-logs?${params.toString()}`)
   },
+  /**
+   * Get all students who exited today (returned or not)
+   */
+  getExitedToday: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+    if (filters.hostelBlock) params.append('hostelBlock', filters.hostelBlock)
+    return await apiClient.get(`/security/exited-today?${params.toString()}`)
+  },
 
+  /**
+   * Get active students currently in hostel (not out)
+   */
+  getCurrentlyIn: async (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit) params.append('limit', filters.limit)
+    if (filters.skip) params.append('skip', filters.skip)
+    if (filters.hostelBlock) params.append('hostelBlock', filters.hostelBlock)
+    return await apiClient.get(`/security/currently-in?${params.toString()}`)
+  },
   // Legacy methods for backward compatibility
   getDashboardData: async () => {
     return await apiClient.get('/security/dashboard/stats')
@@ -128,12 +159,16 @@ export const securityService = {
 export const {
   getDashboardStats,
   getActiveOutpasses,
+  scanOutpass,
   verifyOutpass,
   recordExit,
   recordReturn,
   getStudentsOut,
   getRecentActivity,
   getOverdueReturns,
+  getReturnedLogs,
+  getExitedToday,
+  getCurrentlyIn,
   getDashboardData,
   verifyByQR,
   getTodayStats,

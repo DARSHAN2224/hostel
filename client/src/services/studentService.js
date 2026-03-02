@@ -20,7 +20,7 @@ export const studentService = {
    * @param {Object} params - Query parameters
    */
   getForHod: async (params = {}) => {
-    return await apiClient.get(API_ENDPOINTS.HOD_STUDENTS, { params })
+    return await apiClient.get(API_ENDPOINTS.STUDENTS, { params })
   },
 
   /**
@@ -148,8 +148,8 @@ export const studentService = {
    * @returns {Promise}
    */
   delete: async (id) => {
-    return await apiClient.delete(`${API_ENDPOINTS.STUDENTS}/${id}`)
-  }
+    return await apiClient.delete(`${API_ENDPOINTS.USERS}/student/${id}`)
+  },
 }
 
 // Named exports for convenience

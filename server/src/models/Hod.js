@@ -3,13 +3,18 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
 const Schema = mongoose.Schema;
-
+import crypto from 'crypto'
 const HodSchema = new Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   // Do not select password by default for security
   password: { type: String, required: true, select: false },
   department: { type: String, required: true },
+  hostelType: {
+  type: String,
+  enum: ['boys', 'girls']
+  // optional — some HODs may cover both hostels
+},
   phone: { type: String },
   status: { type: String, default: 'active' },
   // Role and login tracking so auth flows can treat HOD like other auth models
@@ -45,7 +50,15 @@ HodSchema.methods.toJSON = function() {
   delete hod.__v
   return hod
 }
-
+HodSchema.methods.createPasswordResetToken = function() {
+  const resetToken = crypto.randomBytes(32).toString('hex')
+  this.passwordResetToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex')
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000 // 10 minutes
+  return resetToken
+}
 // Instance method to check password
 HodSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
   return await bcrypt.compare(candidatePassword, userPassword)

@@ -212,7 +212,10 @@ const studentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Warden'
   },
-  
+  counsellorId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Counsellor'
+  },
   // Account Security
   isEmailVerified: {
     type: Boolean,

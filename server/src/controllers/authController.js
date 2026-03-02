@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { config } from '../config/config.js'
-import { Student, Warden, Admin, Security, Hod, Credential, AuditLog } from '../models/index.js'
+import { Student, Warden, Admin, Security, Hod, Counsellor, Credential, AuditLog } from '../models/index.js'
 import { AppError } from '../middleware/errorHandler.js'
 import { HOSTEL_BLOCKS, HOSTEL_TYPES } from '../utils/constants.js'
 import generateVerificationCode from '../utils/generateVerificationCode.js'
@@ -26,7 +26,7 @@ const setTokenCookie = (res, name, token, maxAge, secure = false) => {
 
 // Internal helpers
 // Include Hod so HOD users can authenticate using the central auth flows
-const AUTH_MODELS = [Student, Warden, Admin, Security, Hod] // Parent excluded from auth flows
+const AUTH_MODELS = [Student, Warden, Admin, Security, Hod, Counsellor] // Parent excluded from auth flows
 
 const findUserByEmailAcrossAuthModels = async (email, includePassword = false) => {
   for (const Model of AUTH_MODELS) {
@@ -227,7 +227,10 @@ export const updateProfile = asyncHandler(async (req, res, next) => {
   const allowedFields = [
     'firstName', 'lastName', 'phone', 'dateOfBirth', 'gender'
   ]
-
+  // Students cannot update their own profile
+  if (req.user.role === 'student') {
+  return next(new AppError('Students cannot update profile details. Contact your warden or admin.', 403))
+  }
   // Filter allowed fields
   const updates = {}
   allowedFields.forEach(field => {
@@ -235,7 +238,7 @@ export const updateProfile = asyncHandler(async (req, res, next) => {
       updates[field] = req.body[field]
     }
   })
-
+  
   const { user: foundUser, Model } = await findUserByIdAcrossAuthModels(req.user.id)
   if (!foundUser) {
     return next(new AppError('User not found', 404))
@@ -387,6 +390,7 @@ export const forgotPassword = asyncHandler(async (req, res, next) => {
 
   // Create reset URL
   const resetURL = `${config.app.clientUrl}/reset-password?token=${resetToken}`
+  
 
   try {
     // Send password reset email

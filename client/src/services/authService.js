@@ -8,9 +8,25 @@ const authService = {
   register: async (userData) => {
     return await apiClient.post('/auth/register', userData)
   },
-  logout: async () => {
+
+  /**
+   * Logout the current user.
+   * For students, also calls POST /students/logout first to invalidate
+   * the student session server-side, then falls through to the unified
+   * auth logout which clears cookies.
+   * @param {string} [role] - The current user's role (from Redux store)
+   */
+  logout: async (role) => {
+    if (role === 'student') {
+      try {
+        await apiClient.post('/students/logout')
+      } catch {
+        // Non-fatal — proceed to auth logout regardless
+      }
+    }
     return await apiClient.post(API_ENDPOINTS.LOGOUT)
   },
+
   refreshToken: async (refreshToken) => {
     return await apiClient.post(API_ENDPOINTS.REFRESH, { refreshToken })
   },
@@ -20,9 +36,12 @@ const authService = {
   forgotPassword: async (email) => {
     return await apiClient.post(API_ENDPOINTS.FORGOT_PASSWORD, { email })
   },
-  resetPassword: async (token, password) => {
-    // Backend expects token and newPassword in body
-    return await apiClient.post(API_ENDPOINTS.RESET_PASSWORD, { token, newPassword: password })
+  resetPassword: async (token, password, confirmPassword) => {
+    return await apiClient.post(API_ENDPOINTS.RESET_PASSWORD, { 
+      token, 
+      newPassword: password,
+      confirmPassword 
+    })
   },
   changePassword: async (passwordData) => {
     return await apiClient.put('/auth/change-password', passwordData)
@@ -44,6 +63,20 @@ const authService = {
   }
 }
 
-export const { login, register, logout, refreshToken, getCurrentUser, forgotPassword, resetPassword, changePassword, updateProfile, verifyEmail, resendVerification, registerAdmin, getHostelBlocks } = authService
+export const {
+  login,
+  register,
+  logout,
+  refreshToken,
+  getCurrentUser,
+  forgotPassword,
+  resetPassword,
+  changePassword,
+  updateProfile,
+  verifyEmail,
+  resendVerification,
+  registerAdmin,
+  getHostelBlocks
+} = authService
 
 export default authService

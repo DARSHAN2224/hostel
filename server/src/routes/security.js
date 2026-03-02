@@ -5,133 +5,39 @@ import * as SecurityController from '../controllers/securityController.js'
 
 const router = express.Router()
 
-/**
- * @route   GET /api/v1/security/dashboard/stats
- * @desc    Get security dashboard statistics
- * @access  Private (Security)
- */
-router.get(
-  '/dashboard/stats',
-  authenticateToken,
-  authorize('security'),
-  readLimiter,
-  SecurityController.getSecurityDashboardStats
-)
+// Dashboard stats
+router.get('/dashboard/stats', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getSecurityDashboardStats)
 
-/**
- * @route   GET /api/v1/security/active-outpasses
- * @desc    Get active/approved outpasses for gate verification
- * @access  Private (Security)
- */
-router.get(
-  '/active-outpasses',
-  authenticateToken,
-  authorize('security'),
-  readLimiter,
-  SecurityController.getActiveOutpasses
-)
+// Active approved outpasses list
+router.get('/active-outpasses', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getActiveOutpasses)
 
-/**
- * @route   POST /api/v1/security/verify-outpass
- * @desc    Verify outpass by QR code or manual code
- * @access  Private (Security)
- */
-router.post(
-  '/verify-outpass',
-  authenticateToken,
-  authorize('security'),
-  writeLimiter,
-  SecurityController.verifyOutpass
-)
+// ─── PRIMARY: Auto scan endpoint (exit on 1st scan, return on 2nd after 10 min) ───
+router.post('/scan', authenticateToken, authorize('security', 'admin'), writeLimiter, SecurityController.scanOutpass)
 
-/**
- * @route   POST /api/v1/security/record-exit/:outpassId
- * @desc    Record student exit
- * @access  Private (Security)
- */
-router.post(
-  '/record-exit/:outpassId',
-  authenticateToken,
-  authorize('security'),
-  writeLimiter,
-  SecurityController.recordExit
-)
+// Verify only (no recording)
+router.post('/verify-outpass', authenticateToken, authorize('security', 'admin'), writeLimiter, SecurityController.verifyOutpass)
 
-/**
- * @route   POST /api/v1/security/record-return/:outpassId
- * @desc    Record student return
- * @access  Private (Security)
- */
-router.post(
-  '/record-return/:outpassId',
-  authenticateToken,
-  authorize('security'),
-  writeLimiter,
-  SecurityController.recordReturn
-)
+// Manual exit / return
+router.post('/record-exit/:outpassId', authenticateToken, authorize('security', 'admin'), writeLimiter, SecurityController.recordExit)
+router.post('/record-return/:outpassId', authenticateToken, authorize('security', 'admin'), writeLimiter, SecurityController.recordReturn)
 
-/**
- * @route   GET /api/v1/security/students-out
- * @desc    Get list of students currently out
- * @access  Private (Security)
- */
-router.get(
-  '/students-out',
-  authenticateToken,
-  // Allow security, admin, warden and hod to view students currently out
-  authorize('security', 'admin', 'warden', 'hod'),
-  readLimiter,
-  SecurityController.getStudentsOut
-)
+// Students currently out
+router.get('/students-out', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getStudentsOut)
 
-/**
- * @route   GET /api/v1/security/recent-activity
- * @desc    Get recent gate activity (exits/returns)
- * @access  Private (Security)
- */
-router.get(
-  '/recent-activity',
-  authenticateToken,
-  // Allow security and administrative/staff roles to view recent gate activity
-  authorize('security', 'admin', 'warden', 'hod'),
-  readLimiter,
-  SecurityController.getRecentActivity
-)
+// Recent gate activity
+router.get('/recent-activity', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getRecentActivity)
 
-/**
- * @route   GET /api/v1/security/overdue-returns
- * @desc    Get students who haven't returned on time
- * @access  Private (Security)
- */
-router.get(
-  '/overdue-returns',
-  authenticateToken,
-  // Allow security and admin roles to view overdue returns
-  authorize('security', 'admin', 'warden', 'hod'),
-  readLimiter,
-  SecurityController.getOverdueReturns
-)
+// Overdue returns
+router.get('/overdue-returns', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getOverdueReturns)
+router.get('/exited-today', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getExitedToday)
 
-/**
- * @route   GET /api/v1/security/returned-logs
- * @desc    Get outpass logs for students who have returned
- * @access  Private (security, admin, warden, hod)
- */
-router.get(
-  '/returned-logs',
-  authenticateToken,
-  authorize('security', 'admin', 'warden', 'hod'),
-  readLimiter,
-  SecurityController.getReturnedLogs
-)
+// Currently in (active students not out)
+router.get('/currently-in', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getCurrentlyIn)
 
-// Debug: fetch raw outpass by id or requestId (development only)
-router.get(
-  '/debug/outpass/:id',
-  authenticateToken,
-  authorize('security', 'admin'),
-  readLimiter,
-  SecurityController.debugGetOutpass
-)
+// Returned logs
+router.get('/returned-logs', authenticateToken, authorize('security', 'admin', 'warden', 'hod'), readLimiter, SecurityController.getReturnedLogs)
+
+// Debug (dev only)
+router.get('/debug/outpass/:id', authenticateToken, authorize('security', 'admin'), readLimiter, SecurityController.debugGetOutpass)
 
 export default router

@@ -31,7 +31,7 @@ router.post('/parent/request-otp/:requestId', authMiddleware, outpassController.
 
 // Warden: send to HOD for approval
 router.post('/warden/send-to-hod/:requestId', authMiddleware, outpassController.sendToHod);
-
+router.post('/warden/send-to-counsellor/:requestId', authMiddleware, outpassController.sendToCounsellor);
 // Parent approves via OTP (parent portal) - authenticated portal (warden/admin or parent with account)
 router.post('/parent/approve/:requestId', authMiddleware, outpassController.parentApproveOutpass);
 

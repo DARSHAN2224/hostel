@@ -3,12 +3,14 @@ import authReducer from './authSlice'
 import studentsReducer from './studentsSlice'
 import outpassReducer from './outpassSlice'
 import uiReducer from './uiSlice'
+import socketReducer from './socketSlice'
 
 export const store = configureStore({
     reducer: {
       auth: authReducer,
       students: studentsReducer,
       outpass: outpassReducer,
+      socket: socketReducer, 
       ui: uiReducer
     },
   middleware: (getDefaultMiddleware) =>

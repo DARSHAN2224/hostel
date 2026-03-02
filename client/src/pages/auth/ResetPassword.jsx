@@ -4,7 +4,6 @@ import Input from '../../components/ui/Input'
 import Button from '../../components/ui/Button'
 import toast from 'react-hot-toast'
 import authService from '../../services/authService'
-import { ROUTES } from '../../constants'
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams()
@@ -16,27 +15,35 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    // FIX: ROUTES.LOGIN doesn't exist — navigate to '/' (landing/home) instead
+    // so the user can pick their role login from there
     if (!token) {
-      toast.error('Reset token missing')
-      navigate(ROUTES.LOGIN)
+      toast.error('Reset token missing or invalid. Please request a new reset link.')
+      navigate('/')
     }
   }, [token, navigate])
 
   const submit = async (e) => {
     e.preventDefault()
     if (newPassword !== confirmPassword) return toast.error('Passwords do not match')
+    if (newPassword.length < 8) return toast.error('Password must be at least 8 characters')
     setLoading(true)
     const loader = toast.loading('Resetting password...')
     try {
-      await authService.resetPassword(token, newPassword)
-      toast.success('Password reset successful', { id: loader })
-      navigate(ROUTES.LOGIN)
+      await authService.resetPassword(token, newPassword, confirmPassword)
+      toast.success('Password reset successful. Please log in with your new password.', { id: loader, duration: 4000 })
+      // FIX: ROUTES.LOGIN is undefined — navigate to '/' so user can pick their role login
+      navigate('/')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to reset password', { id: loader })
+      const message = err?.response?.data?.message || err?.data?.message || 'Failed to reset password'
+      toast.error(message, { id: loader })
     } finally {
       setLoading(false)
     }
   }
+
+  // Don't render the form if there's no token (redirect is in progress)
+  if (!token) return null
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">

@@ -111,14 +111,16 @@ class StudentService {
    * @returns {Promise<Object>} - Student document
    */
   async getStudentById(id) {
-    const student = await StudentRepository.findById(id, {
-      populate: [
-        { path: 'activeOutpasses', select: 'reason leaveTime returnTime status' }
-      ]
-    })
+  const { default: Student } = await import('../models/Student.js')
+  const student = await Student.findById(id)
+    .populate('wardenId', 'firstName lastName email phone')
+    .populate('hodId', 'name email department')
+    .populate('counsellorId', 'firstName lastName email department')
 
-    return this.sanitizeStudent(student)
-  }
+  if (!student) throw new NotFoundError('Student not found')
+
+  return this.sanitizeStudent(student)
+}
 
   /**
    * Get student by student ID

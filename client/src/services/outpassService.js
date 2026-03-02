@@ -69,6 +69,7 @@ export const outpassService = {
   getWardenDashboard: async () => {
     return await apiClient.get(API_ENDPOINTS.OUTPASS_DASHBOARD)
   },
+
   /**
    * HOD dashboard data
    * @returns {Promise}
@@ -104,7 +105,7 @@ export const outpassService = {
    * @returns {Promise}
    */
   cancel: async (requestId, reason) => {
-    return await apiClient.post(`/outpass/${requestId}/cancel`, { reason })
+    return await apiClient.delete(`/outpass/${requestId}/cancel`, { data: { reason } })
   },
 
   /**
@@ -135,20 +136,34 @@ export const outpassService = {
   },
 
   /**
-   * Get overdue outpasses
+   * Get overdue outpasses.
+   * Backend route: GET /security/overdue-returns (requires auth, security/warden/admin role).
    * @returns {Promise}
    */
   getOverdue: async () => {
-    return await apiClient.get('/outpass/overdue')
+    return await apiClient.get('/security/overdue-returns')
   },
 
   /**
-   * Get expiring outpasses
+   * Get expiring outpasses.
+   * No dedicated backend endpoint exists. Falls back to fetching all approved
+   * outpasses and filtering client-side by expectedReturnTime within `hours`.
    * @param {number} hours - Hours threshold (default 24)
-   * @returns {Promise}
+   * @returns {Promise<{data: {outpasses: Array}}>}
    */
   getExpiring: async (hours = 24) => {
-    return await apiClient.get(`/outpass/expiring?hours=${hours}`)
+    const response = await apiClient.get(API_ENDPOINTS.OUTPASS_LIST, {
+      params: { status: 'approved' }
+    })
+    const payload = response?.data || response
+    const list = payload?.outpasses || payload?.requests || (Array.isArray(payload) ? payload : [])
+    const cutoff = new Date(Date.now() + hours * 60 * 60 * 1000)
+    const expiring = list.filter(o => {
+      const ret = o.expectedReturnTime || o.returnDateTime
+      return ret && new Date(ret) <= cutoff && new Date(ret) > new Date()
+    })
+    // Return same shape as a real API response so callers don't need to change
+    return { data: { outpasses: expiring } }
   },
 
   /**
@@ -159,6 +174,36 @@ export const outpassService = {
    */
   bulkApprove: async (outpassIds, comments = '') => {
     return await apiClient.post('/outpass/bulk/approve', { outpassIds, comments })
+  },
+
+  /**
+   * Get outpass history with filters (admin/warden view)
+   * @param {Object} params - Query parameters (status, search, page, limit, etc.)
+   * @returns {Promise}
+   */
+  getHistory: async (params = {}) => {
+    return await apiClient.get(API_ENDPOINTS.OUTPASS_LIST, { params })
+  },
+
+  /**
+   * Get my outpass history (student).
+   * Backend route: GET /outpass/student/my-outpasses
+   * @param {Object} params - Query parameters
+   * @returns {Promise}
+   */
+  getMyHistory: async (params = {}) => {
+    return await apiClient.get('/outpass/student/my-outpasses', { params })
+  },
+
+  /**
+   * Get complete history with analytics
+   * @param {Object} params - Query parameters
+   * @returns {Promise}
+   */
+  getCompleteHistory: async (params = {}) => {
+    return await apiClient.get(API_ENDPOINTS.OUTPASS_LIST, {
+      params: { ...params, includeAnalytics: true }
+    })
   },
 
   /**
@@ -204,7 +249,10 @@ export const {
   getOverdue,
   getExpiring,
   bulkApprove,
-  bulkReject
+  bulkReject,
+  getHistory,
+  getMyHistory,
+  getCompleteHistory
 } = outpassService
 
 export default outpassService

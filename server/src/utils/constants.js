@@ -34,6 +34,8 @@ export const USER_ROLES = {
   WARDEN: 'warden',
   ADMIN: 'admin',
   SECURITY: 'security',
+  COUNSELLOR: 'counsellor',
+  HOD: 'hod',
   STAFF: 'staff'
 }
 
@@ -48,6 +50,9 @@ export const USER_STATUS = {
 // Outpass Status
 export const OUTPASS_STATUS = {
   PENDING: 'pending',
+  COUNSELLOR_PENDING: 'counsellor_pending',
+  COUNSELLOR_APPROVED: 'counsellor_approved',
+  REJECTED_BY_COUNSELLOR: 'rejected_by_counsellor',
   APPROVED: 'approved',
   REJECTED: 'rejected',
   OUT: 'out',
@@ -84,7 +89,7 @@ export const SECURITY_SHIFT_TYPES = {
   NIGHT: 'night'
 }
 
-// Courses (you can expand this based on your institution)
+// Courses (expand based on your institution)
 export const COURSES = [
   'Computer Science Engineering',
   'Information Technology',
@@ -100,7 +105,6 @@ export const COURSES = [
 
 // Academic Years
 export const YEARS = [1, 2, 3, 4, 5, 6]
-
 
 // Gender
 export const GENDER = {
@@ -161,59 +165,43 @@ export const CACHE_KEYS = {
 
 // Cache TTL (Time To Live) in seconds
 export const CACHE_TTL = {
-  SHORT: 5 * 60,        // 5 minutes
-  MEDIUM: 30 * 60,      // 30 minutes
-  LONG: 24 * 60 * 60,   // 24 hours
-  VERY_LONG: 7 * 24 * 60 * 60  // 7 days
+  SHORT: 5 * 60,               // 5 minutes
+  MEDIUM: 30 * 60,             // 30 minutes
+  LONG: 24 * 60 * 60,          // 24 hours
+  VERY_LONG: 7 * 24 * 60 * 60 // 7 days
 }
 
 // Error Messages
 export const ERROR_MESSAGES = {
-  // Authentication
   INVALID_CREDENTIALS: 'Invalid email or password',
   UNAUTHORIZED: 'You are not authorized to access this resource',
   TOKEN_EXPIRED: 'Your session has expired. Please log in again',
   TOKEN_INVALID: 'Invalid authentication token',
-  
-  // Validation
   REQUIRED_FIELD: (field) => `${field} is required`,
   INVALID_EMAIL: 'Please provide a valid email address',
   INVALID_PASSWORD: 'Password must be at least 8 characters with uppercase, lowercase and number',
   INVALID_PHONE: 'Please provide a valid phone number',
-  
-  // Resources
   USER_NOT_FOUND: 'User not found',
   ROOM_NOT_FOUND: 'Room not found',
   OUTPASS_NOT_FOUND: 'Outpass not found',
-  
-  // Conflicts
   EMAIL_EXISTS: 'Email already exists',
   STUDENT_ID_EXISTS: 'Student ID already exists',
   ROOM_OCCUPIED: 'Room is already occupied',
-  
-  // Permissions
   INSUFFICIENT_PERMISSIONS: 'You do not have permission to perform this action',
   ACCOUNT_SUSPENDED: 'Your account has been suspended',
-  
-  // Server
   INTERNAL_ERROR: 'Internal server error',
   SERVICE_UNAVAILABLE: 'Service temporarily unavailable'
 }
 
 // Success Messages
 export const SUCCESS_MESSAGES = {
-  // Authentication
   LOGIN_SUCCESS: 'Login successful',
   LOGOUT_SUCCESS: 'Logout successful',
   REGISTER_SUCCESS: 'Registration successful',
   PASSWORD_RESET: 'Password reset successful',
-  
-  // CRUD Operations
   CREATED: (resource) => `${resource} created successfully`,
   UPDATED: (resource) => `${resource} updated successfully`,
   DELETED: (resource) => `${resource} deleted successfully`,
-  
-  // Specific Actions
   OUTPASS_SUBMITTED: 'Outpass request submitted successfully',
   OUTPASS_APPROVED: 'Outpass approved successfully',
   OUTPASS_REJECTED: 'Outpass rejected',
@@ -254,15 +242,48 @@ export const DEFAULTS = {
   TIMEZONE: 'UTC'
 }
 
-// Hostel Types and Blocks
+// ─── Hostel Types ─────────────────────────────────────────────────────────────
 export const HOSTEL_TYPES = {
   BOYS: 'boys',
   GIRLS: 'girls'
 }
 
-// Allowed Hostel Blocks per Type
-// Update these arrays to match your actual hostel blocks
+// ─── Hostel Blocks ────────────────────────────────────────────────────────────
+// Boys hostel  → A, B, C, D
+// Girls hostel → E, F, G, H
+// Kept as separate named exports so controllers can import whichever they need,
+// and as a combined map keyed by hostelType for validation / assignment logic.
+
+export const BOYS_BLOCKS  = ['A', 'B', 'C', 'D']
+export const GIRLS_BLOCKS = ['E', 'F', 'G', 'H']
+export const ALL_BLOCKS   = [...BOYS_BLOCKS, ...GIRLS_BLOCKS]
+
+/**
+ * HOSTEL_BLOCKS[hostelType] → string[]
+ * Use this map wherever you need to look up valid blocks for a given hostel type.
+ *
+ * Examples:
+ *   HOSTEL_BLOCKS[HOSTEL_TYPES.BOYS]   // ['A','B','C','D']
+ *   HOSTEL_BLOCKS[HOSTEL_TYPES.GIRLS]  // ['E','F','G','H']
+ *   HOSTEL_BLOCKS['boys']              // ['A','B','C','D']
+ */
 export const HOSTEL_BLOCKS = {
-  [HOSTEL_TYPES.BOYS]: ['B1', 'B2', 'B3'],
-  [HOSTEL_TYPES.GIRLS]: ['G1', 'G2', 'G3']
+  [HOSTEL_TYPES.BOYS]:  BOYS_BLOCKS,
+  [HOSTEL_TYPES.GIRLS]: GIRLS_BLOCKS
+}
+
+/**
+ * Given a hostel block letter, return the hostel type it belongs to.
+ * Used during student creation to derive hostelType from hostelBlock.
+ *
+ * getHostelTypeFromBlock('A') → 'boys'
+ * getHostelTypeFromBlock('F') → 'girls'
+ * getHostelTypeFromBlock('Z') → null
+ */
+export const getHostelTypeFromBlock = (block) => {
+  if (!block) return null
+  const upper = block.toUpperCase()
+  if (BOYS_BLOCKS.includes(upper))  return HOSTEL_TYPES.BOYS
+  if (GIRLS_BLOCKS.includes(upper)) return HOSTEL_TYPES.GIRLS
+  return null
 }

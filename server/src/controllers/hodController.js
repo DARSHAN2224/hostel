@@ -1,4 +1,3 @@
-
 import jwt from 'jsonwebtoken';
 import { config } from '../config/config.js';
 import Hod from '../models/Hod.js';
@@ -11,11 +10,8 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { AppError } from '../middleware/errorHandler.js'
 
 const hodController = {
-  // Create HOD (Super Admin only)
-
+  // Create HOD (Admin only)
   createHod: asyncHandler(async (req, res, next) => {
-    // Only admins are allowed to create HODs. The system no longer
-    // differentiates 'super_admin' — plain 'admin' is sufficient.
     if (req.user.role !== 'admin') {
       return next(new AppError('Forbidden', 403))
     }
@@ -24,11 +20,9 @@ const hodController = {
     const existing = await Hod.findOne({ email })
     if (existing) return next(new AppError('HOD already exists', 400))
 
-    // Generate verification token
     const verificationCode = generateVerificationCode()
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000)
 
-    // Password handling: if super_admin (creator) did not provide password, generate one
     const generateRandomPassword = (len = 10) => {
       const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
       const lower = 'abcdefghijklmnopqrstuvwxyz'
@@ -66,7 +60,6 @@ const hodController = {
 
     await hod.save()
 
-    // Send credentials email if generated
     if (generatedPassword) {
       const credText = `Your HOD account has been created.\nEmail: ${hod.email}\nPassword: ${generatedPassword}\nPlease verify your email using the verification code sent and change your password after login.`
       try {
@@ -74,7 +67,6 @@ const hodController = {
       } catch (e) {
         console.warn('Failed to send HOD credentials email:', e)
       }
-      // Persist generated credential for admin retrieval and audit it.
       try {
         const cred = await Credential.create({ userId: hod._id, role: 'hod', password: generatedPassword })
         try {
@@ -97,7 +89,6 @@ const hodController = {
       }
     }
 
-    // Send verification email
     try {
       await sendVerificationEmail(hod.email, name, verificationCode)
     } catch (e) {
@@ -107,9 +98,8 @@ const hodController = {
     return res.status(201).json(new ApiResponse(201, { hod: { id: hod._id, name: hod.name, email: hod.email, department: hod.department, phone: hod.phone }, verificationCode: config.nodeEnv === 'development' ? verificationCode : undefined }, 'HOD created'))
   }),
 
-  // Edit HOD (Super Admin only)
+  // Edit HOD by ID (Admin only)
   editHod: asyncHandler(async (req, res, next) => {
-    // Allow regular admins to edit HODs
     if (req.user.role !== 'admin') {
       return next(new AppError('Forbidden', 403))
     }
@@ -131,6 +121,26 @@ const hodController = {
     return res.json(new ApiResponse(200, { hod: { id: hod._id, name: hod.name, email: hod.email, department: hod.department, phone: hod.phone } }, 'HOD updated'))
   }),
 
+  // FIX 5: HOD updates their own profile via PUT /hods/profile
+  // Uses req.user.id so the HOD doesn't need to supply their own hodId
+  updateHodProfile: asyncHandler(async (req, res, next) => {
+    if (req.user.role !== 'hod') {
+      return next(new AppError('Access denied', 403))
+    }
+
+    const { name, phone } = req.body
+
+    const hod = await Hod.findById(req.user.id)
+    if (!hod) return next(new AppError('HOD not found', 404))
+
+    if (name !== undefined) hod.name = name
+    if (phone !== undefined) hod.phone = phone
+    hod.updatedAt = Date.now()
+    await hod.save()
+
+    return res.json(new ApiResponse(200, { hod: { id: hod._id, name: hod.name, email: hod.email, department: hod.department, phone: hod.phone } }, 'Profile updated'))
+  }),
+
   // HOD login
   loginHod: asyncHandler(async (req, res, next) => {
     const { email, password } = req.body
@@ -139,8 +149,6 @@ const hodController = {
     const hod = await Hod.findOne({ email }).select('+password')
     if (!hod) return next(new AppError('Invalid credentials', 401))
 
-    // Require email verification for HODs. If not verified, generate and send
-    // a verification code and instruct the user to verify first.
     if (!hod.isEmailVerified) {
       const verificationCode = generateVerificationCode()
       const verificationExpires = new Date(Date.now() + 10 * 60 * 1000)
@@ -161,16 +169,13 @@ const hodController = {
     try {
       valid = await bcrypt.compare(password, hod.password)
     } catch {
-      // In case stored password is plain text (older records), fall back to direct equality
       valid = hod.password === password
     }
 
-    // If comparison failed but the stored value matched plaintext, upgrade to hashed password
     if (!valid && hod.password === password) {
       try {
         const hashed = await bcrypt.hash(password, 12)
         hod.password = hashed
-        // preserve mustChangePassword flag if already set; do not unset here
         await hod.save({ validateBeforeSave: false })
         valid = true
       } catch (upgradeErr) {
@@ -180,29 +185,27 @@ const hodController = {
 
     if (!valid) return next(new AppError('Invalid credentials', 401))
 
-    // Generate JWT token
     const token = jwt.sign({ id: hod._id, role: 'hod', department: hod.department }, config.jwt.secret || config.jwtSecret || 'secret', { expiresIn: '1h' })
 
-    // Respond with token and hod info; include mustChangePassword flag
     return res.json(new ApiResponse(200, { token, hod: { id: hod._id, name: hod.name, email: hod.email, department: hod.department, phone: hod.phone }, mustChangePassword: hod.mustChangePassword || false }, 'Login successful'))
   }),
 
-  // Get HOD profile
+  // Get HOD's own profile
   getHodProfile: asyncHandler(async (req, res, next) => {
     if (req.user.role !== 'hod') return next(new AppError('Access denied', 403))
 
-  const hod = await Hod.findById(req.user.id).select('-password').populate('assignedStudentsCount')
+    const hod = await Hod.findById(req.user.id).select('-password').populate('assignedStudentsCount')
     if (!hod) return next(new AppError('HOD not found', 404))
 
     return res.json(new ApiResponse(200, { hod }, 'HOD profile retrieved'))
   }),
 
-  // Get all HODs (Super Admin only)
+  // Get all HODs (Admin only)
   getAllHods: asyncHandler(async (req, res, next) => {
     if (req.user.role !== 'admin') return next(new AppError('Forbidden', 403))
 
-  let hods = await Hod.find().select('-password').populate('assignedStudentsCount')
-    if (req.user?.role === 'admin' && Array.isArray(hods) && hods.length > 0) {
+    let hods = await Hod.find().select('-password').populate('assignedStudentsCount')
+    if (Array.isArray(hods) && hods.length > 0) {
       try {
         const ids = hods.map(h => h._id)
         const { default: Credential } = await import('../models/Credential.js')
@@ -218,10 +221,9 @@ const hodController = {
     return res.json(new ApiResponse(200, { hods, count: hods.length }, 'HODs retrieved'))
   }),
 
-  // Delete HOD (Super Admin only)
+  // Delete HOD (Admin only)
   deleteHod: asyncHandler(async (req, res, next) => {
-  // Allow regular admins to delete HODs
-  if (req.user.role !== 'admin') return next(new AppError('Forbidden', 403))
+    if (req.user.role !== 'admin') return next(new AppError('Forbidden', 403))
 
     const { hodId } = req.params
     const hod = await Hod.findByIdAndDelete(hodId)
@@ -241,7 +243,63 @@ const hodController = {
     const students = await Student.find({ department: hod.department, hodId: hod._id }).select('-password')
 
     return res.json(new ApiResponse(200, { students, count: students.length, department: hod.department }, 'Students retrieved'))
+  }),
+
+  // FIX 6: GET /hods/statistics — department-level stats for HOD dashboard
+  getDepartmentStatistics: asyncHandler(async (req, res, next) => {
+    if (req.user.role !== 'hod') return next(new AppError('Access denied', 403))
+
+    const hod = await Hod.findById(req.user.id)
+    if (!hod) return next(new AppError('HOD not found', 404))
+
+    const Student = (await import('../models/Student.js')).default
+    const OutpassRequest = (await import('../models/OutpassRequest.js')).default
+
+    // Run student counts in parallel
+    const [totalStudents, activeStudents, studentsByYear] = await Promise.all([
+      Student.countDocuments({ department: hod.department }),
+      Student.countDocuments({ department: hod.department, status: 'active' }),
+      Student.aggregate([
+        { $match: { department: hod.department } },
+        { $group: { _id: '$yearOfStudy', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ])
+    ])
+
+    // Get IDs of all students in this department for outpass queries
+    const departmentStudentIds = await Student.find(
+      { department: hod.department },
+      '_id'
+    ).lean().then(docs => docs.map(d => d._id))
+
+    // Run outpass counts in parallel
+    const [pendingOutpasses, approvedOutpasses, outpassesByType] = await Promise.all([
+      OutpassRequest.countDocuments({ student: { $in: departmentStudentIds }, status: 'pending' }),
+      OutpassRequest.countDocuments({
+        student: { $in: departmentStudentIds },
+        status: { $in: ['approved', 'approved_by_warden', 'APPROVED', 'APPROVED_BY_WARDEN'] }
+      }),
+      OutpassRequest.aggregate([
+        { $match: { student: { $in: departmentStudentIds } } },
+        { $group: { _id: '$outpassType', count: { $sum: 1 } } }
+      ])
+    ])
+
+    return res.json(new ApiResponse(200, {
+      department: hod.department,
+      students: {
+        total: totalStudents,
+        active: activeStudents,
+        inactive: totalStudents - activeStudents,
+        byYear: studentsByYear.map(y => ({ year: y._id, count: y.count }))
+      },
+      outpasses: {
+        pending: pendingOutpasses,
+        approved: approvedOutpasses,
+        byType: outpassesByType.map(t => ({ type: t._id, count: t.count }))
+      }
+    }, 'Department statistics retrieved'))
   })
-};
+}
 
 export default hodController;

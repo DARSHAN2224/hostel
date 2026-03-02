@@ -1,6 +1,7 @@
 /**
  * Settings Page - Ultra Modern User Settings
  * Complete user settings with tabs for profile, security, and preferences
+ * Student role: clean read-only profile display, no editing UI
  */
 
 import { useState } from 'react'
@@ -20,7 +21,10 @@ import {
   EnvelopeIcon,
   PhoneIcon,
   HomeIcon,
-  PhotoIcon
+  PhotoIcon,
+  InformationCircleIcon,
+  CalendarDaysIcon,
+  UserIcon,
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Card'
@@ -34,6 +38,25 @@ import toast from 'react-hot-toast'
 import { useTheme } from '../../hooks/useTheme'
 import apiClient from '../../services/api'
 
+/* ─────────────────────────────────────────────
+   Read-only profile field (student view)
+───────────────────────────────────────────── */
+function ProfileField({ label, value, icon: Icon }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+        {label}
+      </span>
+      <div className="flex items-center gap-2.5 px-4 py-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl border border-slate-100 dark:border-slate-600">
+        {Icon && <Icon className="w-4 h-4 text-slate-400 flex-shrink-0" />}
+        <span className="text-sm text-slate-800 dark:text-slate-200 font-medium">
+          {value || <span className="text-slate-400 dark:text-slate-500 italic font-normal">Not provided</span>}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function Settings({ initialTab = 'profile' }) {
   const user = useSelector(selectUser)
   const dispatch = useDispatch()
@@ -44,33 +67,32 @@ export default function Settings({ initialTab = 'profile' }) {
   const [notifications, setNotifications] = useState({
     email: true,
     sms: false,
-    push: true
+    push: true,
   })
 
-  // Profile form
+  // Profile form (used only for non-student roles)
   const [profileData, setProfileData] = useState({
-    firstName: user?.firstName || '',
-    lastName: user?.lastName || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
-    address: user?.address || '',
-    // prefill date in yyyy-mm-dd if available
-    dateOfBirth: user?.dateOfBirth ? (new Date(user.dateOfBirth)).toISOString().slice(0,10) : '',
-    gender: user?.gender || ''
+    firstName:   user?.firstName   || '',
+    lastName:    user?.lastName    || '',
+    email:       user?.email       || '',
+    phone:       user?.phone       || '',
+    address:     user?.address     || '',
+    dateOfBirth: user?.dateOfBirth ? new Date(user.dateOfBirth).toISOString().slice(0, 10) : '',
+    gender:      user?.gender      || '',
   })
 
   // Password form
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
-    newPassword: '',
-    confirmPassword: ''
+    newPassword:     '',
+    confirmPassword: '',
   })
 
   const tabs = [
-    { id: 'profile', label: 'Profile', icon: UserCircleIcon, color: 'from-blue-500 to-cyan-500' },
-    { id: 'security', label: 'Security', icon: LockClosedIcon, color: 'from-green-500 to-emerald-500' },
-    { id: 'notifications', label: 'Notifications', icon: BellIcon, color: 'from-purple-500 to-pink-500' },
-    { id: 'appearance', label: 'Appearance', icon: PaintBrushIcon, color: 'from-orange-500 to-red-500' }
+    { id: 'profile',       label: 'Profile',       icon: UserCircleIcon, color: 'from-blue-500 to-cyan-500'     },
+    { id: 'security',      label: 'Security',      icon: LockClosedIcon, color: 'from-green-500 to-emerald-500' },
+    { id: 'notifications', label: 'Notifications', icon: BellIcon,       color: 'from-purple-500 to-pink-500'   },
+    { id: 'appearance',    label: 'Appearance',    icon: PaintBrushIcon, color: 'from-orange-500 to-red-500'    },
   ]
 
   const handleProfileChange = (e) => {
@@ -88,11 +110,11 @@ export default function Settings({ initialTab = 'profile' }) {
     try {
       const loading = toast.loading('Updating profile...')
       await apiUpdateProfile({
-        firstName: profileData.firstName,
-        lastName: profileData.lastName,
-        phone: profileData.phone,
+        firstName:   profileData.firstName,
+        lastName:    profileData.lastName,
+        phone:       profileData.phone,
         dateOfBirth: profileData.dateOfBirth || undefined,
-        gender: profileData.gender || undefined,
+        gender:      profileData.gender      || undefined,
       })
       toast.success('Profile updated', { id: loading })
     } catch (err) {
@@ -108,59 +130,36 @@ export default function Settings({ initialTab = 'profile' }) {
     }
     try {
       const loading = toast.loading('Changing password...')
-      // Include confirmPassword so backend validation passes
-      // The server's change-password endpoint now returns the updated user
       const changeResp = await apiChangePassword({
         currentPassword: passwordData.currentPassword,
-        newPassword: passwordData.newPassword,
-        confirmPassword: passwordData.confirmPassword
+        newPassword:     passwordData.newPassword,
+        confirmPassword: passwordData.confirmPassword,
       })
 
-      // Try to extract the updated user from the change-password response first
       const returnedUser = changeResp?.data?.user || changeResp?.user || changeResp?.data || changeResp
       if (returnedUser) {
         dispatch(setUser(returnedUser))
-        try {
-          localStorage.setItem('userData', JSON.stringify(returnedUser))
-        } catch (storageErr) {
-          console.warn('Failed to persist userData to localStorage', storageErr)
-        }
+        try { localStorage.setItem('userData', JSON.stringify(returnedUser)) } catch {}
       } else {
-        // Fallback: refresh user data from server and persist; log responses for debugging
         try {
           const resp = await authService.getCurrentUser()
           const fetchedUser = resp?.data?.user || resp?.user || resp?.data || resp
           if (fetchedUser) {
             dispatch(setUser(fetchedUser))
-            try {
-              localStorage.setItem('userData', JSON.stringify(fetchedUser))
-            } catch (storageErr) {
-              console.warn('Failed to persist userData to localStorage', storageErr)
-            }
+            try { localStorage.setItem('userData', JSON.stringify(fetchedUser)) } catch {}
           } else {
             const cleared = { ...user, mustChangePassword: false }
             dispatch(setUser(cleared))
-            try {
-              localStorage.setItem('userData', JSON.stringify(cleared))
-            } catch (storageErr) {
-              console.warn('Failed to persist userData to localStorage', storageErr)
-            }
+            try { localStorage.setItem('userData', JSON.stringify(cleared)) } catch {}
           }
         } catch {
-          // Fallback: clear the user flag locally if refresh fails
           const updatedUser = { ...user, mustChangePassword: false }
           dispatch(setUser(updatedUser))
-          try {
-            localStorage.setItem('userData', JSON.stringify(updatedUser))
-          } catch (storageErr) {
-            console.warn('Failed to persist userData to localStorage', storageErr)
-          }
+          try { localStorage.setItem('userData', JSON.stringify(updatedUser)) } catch {}
         }
       }
 
-      // Navigate to student dashboard after successful change
       navigate('/student/dashboard')
-
       toast.success('Password changed', { id: loading })
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
     } catch (err) {
@@ -172,36 +171,26 @@ export default function Settings({ initialTab = 'profile' }) {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Validate file type
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
     if (!validTypes.includes(file.type)) {
-      toast.error('Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed.')
+      toast.error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.')
       return
     }
-
-    // Validate file size (5MB max)
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size exceeds 5MB limit')
+      toast.error('File size exceeds 5 MB limit')
       return
     }
 
     try {
       setUploading(true)
       const loading = toast.loading('Uploading profile picture...')
-      
       const formData = new FormData()
       formData.append('profilePicture', file)
-
       const response = await apiClient.post('/users/profile-picture', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
-
-      // Update user in Redux store
       const updatedUser = { ...user, profilePicture: response.data.data.profilePicture }
       dispatch(setUser(updatedUser))
-
       toast.success('Profile picture uploaded successfully', { id: loading })
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to upload profile picture')
@@ -223,20 +212,27 @@ export default function Settings({ initialTab = 'profile' }) {
         throw new Error('Failed')
       }
     } catch {
-      // Fallback: persist locally if backend not available
       localStorage.setItem('notification-preferences', JSON.stringify(notifications))
       toast.success('Preferences saved locally')
     }
   }
 
+  const isStudent = user?.role === 'student'
+
+  // Format date of birth for display
+  const displayDob = user?.dateOfBirth
+    ? new Date(user.dateOfBirth).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : ''
+
+  const genderDisplay = user?.gender
+    ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1)
+    : ''
+
   return (
     <DashboardLayout>
-      <Motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="space-y-6"
-      >
-        {/* Header */}
+      <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+
+        {/* ── Header ── */}
         <Motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -249,17 +245,13 @@ export default function Settings({ initialTab = 'profile' }) {
           <div className="relative flex items-center gap-4">
             <SparklesIcon className="h-12 w-12 text-white animate-pulse" />
             <div>
-              <h1 className="text-3xl font-display font-bold text-white">
-                Settings
-              </h1>
-              <p className="mt-1 text-lg text-white/90">
-                Manage your account settings and preferences ⚙️
-              </p>
+              <h1 className="text-3xl font-display font-bold text-white">Settings</h1>
+              <p className="mt-1 text-lg text-white/90">Manage your account settings and preferences ⚙️</p>
             </div>
           </div>
         </Motion.div>
 
-        {/* Tabs */}
+        {/* ── Tabs ── */}
         <div className="flex gap-2 p-2 bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg">
           {tabs.map((tab) => (
             <button
@@ -274,9 +266,7 @@ export default function Settings({ initialTab = 'profile' }) {
                   transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
                 />
               )}
-              <span className={`relative flex items-center justify-center gap-2 ${
-                activeTab === tab.id ? 'text-white' : 'text-slate-600 dark:text-slate-400'
-              }`}>
+              <span className={`relative flex items-center justify-center gap-2 ${activeTab === tab.id ? 'text-white' : 'text-slate-600 dark:text-slate-400'}`}>
                 <tab.icon className="h-5 w-5" />
                 {tab.label}
               </span>
@@ -284,8 +274,10 @@ export default function Settings({ initialTab = 'profile' }) {
           ))}
         </div>
 
-        {/* Tab Content */}
+        {/* ── Tab Content ── */}
         <AnimatePresence mode="wait">
+
+          {/* ════════════════ PROFILE TAB ════════════════ */}
           {activeTab === 'profile' && (
             <Motion.div
               key="profile"
@@ -299,150 +291,155 @@ export default function Settings({ initialTab = 'profile' }) {
                   <CardTitle gradient icon={UserCircleIcon}>Profile Information</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleProfileSubmit} className="space-y-6">
-                    {/* Avatar Section */}
-                    <div className="flex items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-700">
-                      <Motion.div
-                        whileHover={{ scale: 1.05, rotate: 5 }}
-                        className="relative"
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full blur-xl opacity-50" />
-                        <div className="relative h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-2xl overflow-hidden">
-                          {user?.profilePicture ? (
-                            <img 
-                              src={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000'}${user.profilePicture}`}
-                              alt="Profile" 
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-4xl font-bold text-white">
-                              {user?.firstName?.charAt(0) || 'U'}
-                            </span>
-                          )}
+
+                  {/* ── Student: read-only view ── */}
+                  {isStudent ? (
+                    <div className="space-y-6">
+                      {/* Avatar */}
+                      <div className="flex items-center gap-5 pb-6 border-b border-slate-200 dark:border-slate-700">
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full blur-xl opacity-40" />
+                          <div className="relative h-20 w-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-xl overflow-hidden">
+                            {user?.profilePicture ? (
+                              <img
+                                src={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000'}${user.profilePicture}`}
+                                alt="Profile"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-3xl font-bold text-white">
+                                {user?.firstName?.charAt(0) || 'U'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </Motion.div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                          {user?.firstName} {user?.lastName}
-                        </h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">{user?.role}</p>
-                        <div className="mt-2">
-                          <label htmlFor="avatar-upload">
-                            <span 
-                              className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border-2 border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition-all duration-300"
-                            >
-                              <PhotoIcon className="h-4 w-4" />
-                              {uploading ? 'Uploading...' : 'Change Avatar'}
-                            </span>
-                          </label>
-                          <input
-                            id="avatar-upload"
-                            type="file"
-                            accept="image/*"
-                            onChange={handleProfilePictureUpload}
-                            className="hidden"
-                            disabled={uploading}
-                          />
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                            {user?.firstName} {user?.lastName}
+                          </h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 capitalize">{user?.role}</p>
                         </div>
                       </div>
+
+                      {/* Fields grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <ProfileField label="First Name"  value={user?.firstName}  icon={UserCircleIcon} />
+                        <ProfileField label="Last Name"   value={user?.lastName}   icon={UserCircleIcon} />
+                      </div>
+
+                      <ProfileField label="Email Address" value={user?.email}   icon={EnvelopeIcon} />
+                      <ProfileField label="Phone Number"  value={user?.phone}   icon={PhoneIcon}    />
+                      <ProfileField label="Address"       value={user?.address} icon={HomeIcon}     />
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <ProfileField label="Date of Birth" value={displayDob}     icon={CalendarDaysIcon} />
+                        <ProfileField label="Gender"        value={genderDisplay}  icon={UserIcon}         />
+                      </div>
+
+                      {/* Contact admin notice */}
+                      <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-700/40 rounded-xl border border-slate-200 dark:border-slate-600 mt-2">
+                        <InformationCircleIcon className="h-5 w-5 text-slate-400 flex-shrink-0" />
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          To make changes to your profile, please contact your admin or warden.
+                        </p>
+                      </div>
                     </div>
+                  ) : (
+                    /* ── Non-student: editable form ── */
+                    <form onSubmit={handleProfileSubmit} className="space-y-6">
+                      {/* Avatar Section */}
+                      <div className="flex items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-700">
+                        <Motion.div whileHover={{ scale: 1.05, rotate: 5 }} className="relative">
+                          <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full blur-xl opacity-50" />
+                          <div className="relative h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-2xl overflow-hidden">
+                            {user?.profilePicture ? (
+                              <img
+                                src={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000'}${user.profilePicture}`}
+                                alt="Profile"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-4xl font-bold text-white">
+                                {user?.firstName?.charAt(0) || 'U'}
+                              </span>
+                            )}
+                          </div>
+                        </Motion.div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                            {user?.firstName} {user?.lastName}
+                          </h3>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 capitalize">{user?.role}</p>
+                          <div className="mt-2">
+                            <label htmlFor="avatar-upload">
+                              <span className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border-2 border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition-all duration-300">
+                                <PhotoIcon className="h-4 w-4" />
+                                {uploading ? 'Uploading...' : 'Change Avatar'}
+                              </span>
+                            </label>
+                            <input
+                              id="avatar-upload"
+                              type="file"
+                              accept="image/*"
+                              onChange={handleProfilePictureUpload}
+                              className="hidden"
+                              disabled={uploading}
+                            />
+                          </div>
+                        </div>
+                      </div>
 
-                    {/* Form Fields */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Input
-                        label="First Name"
-                        name="firstName"
-                        value={profileData.firstName}
-                        onChange={handleProfileChange}
-                        icon={UserCircleIcon}
-                        glassmorphic
-                        required
-                      />
-                      <Input
-                        label="Last Name"
-                        name="lastName"
-                        value={profileData.lastName}
-                        onChange={handleProfileChange}
-                        icon={UserCircleIcon}
-                        glassmorphic
-                        required
-                      />
-                    </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input label="First Name" name="firstName" value={profileData.firstName} onChange={handleProfileChange} icon={UserCircleIcon} glassmorphic required />
+                        <Input label="Last Name"  name="lastName"  value={profileData.lastName}  onChange={handleProfileChange} icon={UserCircleIcon} glassmorphic required />
+                      </div>
 
-                    <Input
-                      label="Email Address"
-                      name="email"
-                      type="email"
-                      value={profileData.email}
-                      onChange={handleProfileChange}
-                      icon={EnvelopeIcon}
-                      glassmorphic
-                      required
-                    />
+                      <Input label="Email Address" name="email"   type="email" value={profileData.email}   onChange={handleProfileChange} icon={EnvelopeIcon} glassmorphic required />
+                      <Input label="Phone Number"  name="phone"   type="tel"   value={profileData.phone}   onChange={handleProfileChange} icon={PhoneIcon}    glassmorphic />
+                      <Input label="Address"       name="address"              value={profileData.address} onChange={handleProfileChange} icon={HomeIcon}     glassmorphic />
 
-                    <Input
-                      label="Phone Number"
-                      name="phone"
-                      type="tel"
-                      value={profileData.phone}
-                      onChange={handleProfileChange}
-                      icon={PhoneIcon}
-                      glassmorphic
-                    />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                          label="Date of Birth"
+                          name="dateOfBirth"
+                          type="date"
+                          value={profileData.dateOfBirth}
+                          onChange={handleProfileChange}
+                          glassmorphic
+                        />
+                        <Select
+                          label="Gender"
+                          name="gender"
+                          value={profileData.gender}
+                          onChange={(e) => setProfileData(prev => ({ ...prev, gender: e.target.value }))}
+                          glassmorphic
+                        >
+                          <option value="">Select Gender</option>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="other">Other</option>
+                        </Select>
+                      </div>
 
-                    <Input
-                      label="Address"
-                      name="address"
-                      value={profileData.address}
-                      onChange={handleProfileChange}
-                      icon={HomeIcon}
-                      glassmorphic
-                    />
+                      <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+                        <CheckCircleIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                        <p className="text-sm text-blue-900 dark:text-blue-100">
+                          Your profile information is encrypted and stored securely.
+                        </p>
+                      </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      <Input
-                                        label="Date of Birth"
-                                        name="dateOfBirth"
-                                        type="date"
-                                        value={profileData.dateOfBirth}
-                                        onChange={handleProfileChange}
-                                        glassmorphic
-                                      />
-                                      <Select
-                                        label="Gender"
-                                        name="gender"
-                                        value={profileData.gender}
-                                        onChange={(e) => setProfileData(prev => ({ ...prev, gender: e.target.value }))}
-                                        glassmorphic
-                                      >
-                                        <option value="">Select Gender</option>
-                                        <option value="male">Male</option>
-                                        <option value="female">Female</option>
-                                        <option value="other">Other</option>
-                                      </Select>
-                                    </div>
-
-                    <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-                      <CheckCircleIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                      <p className="text-sm text-blue-900 dark:text-blue-100">
-                        Your profile information is encrypted and stored securely.
-                      </p>
-                    </div>
-
-                    <div className="flex justify-end gap-3">
-                      <Button variant="ghost" type="button">
-                        Cancel
-                      </Button>
-                      <Button type="submit" icon={CheckCircleIcon}>
-                        Save Changes
-                      </Button>
-                    </div>
-                  </form>
+                      <div className="flex justify-end gap-3">
+                        <Button variant="ghost" type="button">Cancel</Button>
+                        <Button type="submit" icon={CheckCircleIcon}>Save Changes</Button>
+                      </div>
+                    </form>
+                  )}
                 </CardContent>
               </Card>
             </Motion.div>
           )}
 
+          {/* ════════════════ SECURITY TAB ════════════════ */}
           {activeTab === 'security' && (
             <Motion.div
               key="security"
@@ -456,51 +453,29 @@ export default function Settings({ initialTab = 'profile' }) {
                   <CardTitle gradient icon={LockClosedIcon}>Security Settings</CardTitle>
                 </CardHeader>
                 <CardContent>
+                  {isStudent && (
+                    <div className="flex items-center gap-3 p-4 mb-6 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                      <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Profile editing is restricted</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                          Your profile details can only be updated by your warden or admin. You can still change your password.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <form onSubmit={handlePasswordSubmit} className="space-y-6">
                     <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-xl">
                       <CheckCircleIcon className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
                       <div>
-                        <p className="text-sm font-medium text-green-900 dark:text-green-100">
-                          Your account is secure
-                        </p>
-                        <p className="text-xs text-green-700 dark:text-green-200 mt-1">
-                          Last password change: Never
-                        </p>
+                        <p className="text-sm font-medium text-green-900 dark:text-green-100">Your account is secure</p>
+                        <p className="text-xs text-green-700 dark:text-green-200 mt-1">Last password change: Never</p>
                       </div>
                     </div>
 
-                    <Input
-                      label="Current Password"
-                      name="currentPassword"
-                      type="password"
-                      value={passwordData.currentPassword}
-                      onChange={handlePasswordChange}
-                      icon={KeyIcon}
-                      glassmorphic
-                      required
-                    />
-
-                    <Input
-                      label="New Password"
-                      name="newPassword"
-                      type="password"
-                      value={passwordData.newPassword}
-                      onChange={handlePasswordChange}
-                      icon={LockClosedIcon}
-                      glassmorphic
-                      required
-                    />
-
-                    <Input
-                      label="Confirm New Password"
-                      name="confirmPassword"
-                      type="password"
-                      value={passwordData.confirmPassword}
-                      onChange={handlePasswordChange}
-                      icon={LockClosedIcon}
-                      glassmorphic
-                      required
-                    />
+                    <Input label="Current Password"     name="currentPassword" type="password" value={passwordData.currentPassword} onChange={handlePasswordChange} icon={KeyIcon}        glassmorphic required />
+                    <Input label="New Password"         name="newPassword"     type="password" value={passwordData.newPassword}     onChange={handlePasswordChange} icon={LockClosedIcon} glassmorphic required />
+                    <Input label="Confirm New Password" name="confirmPassword" type="password" value={passwordData.confirmPassword} onChange={handlePasswordChange} icon={LockClosedIcon} glassmorphic required />
 
                     <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
                       <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
@@ -510,12 +485,8 @@ export default function Settings({ initialTab = 'profile' }) {
                     </div>
 
                     <div className="flex justify-end gap-3">
-                      <Button variant="ghost" type="button">
-                        Cancel
-                      </Button>
-                      <Button type="submit" variant="success" icon={KeyIcon}>
-                        Change Password
-                      </Button>
+                      <Button variant="ghost" type="button">Cancel</Button>
+                      <Button type="submit" variant="success" icon={KeyIcon}>Change Password</Button>
                     </div>
                   </form>
                 </CardContent>
@@ -523,6 +494,7 @@ export default function Settings({ initialTab = 'profile' }) {
             </Motion.div>
           )}
 
+          {/* ════════════════ NOTIFICATIONS TAB ════════════════ */}
           {activeTab === 'notifications' && (
             <Motion.div
               key="notifications"
@@ -538,9 +510,9 @@ export default function Settings({ initialTab = 'profile' }) {
                 <CardContent>
                   <div className="space-y-4">
                     {[
-                      { key: 'email', label: 'Email Notifications', description: 'Receive notifications via email' },
-                      { key: 'sms', label: 'SMS Notifications', description: 'Receive notifications via SMS' },
-                      { key: 'push', label: 'Push Notifications', description: 'Receive browser push notifications' }
+                      { key: 'email', label: 'Email Notifications', description: 'Receive notifications via email'             },
+                      { key: 'sms',   label: 'SMS Notifications',   description: 'Receive notifications via SMS'               },
+                      { key: 'push',  label: 'Push Notifications',  description: 'Receive browser push notifications'          },
                     ].map((item, index) => (
                       <Motion.div
                         key={item.key}
@@ -556,9 +528,7 @@ export default function Settings({ initialTab = 'profile' }) {
                         <button
                           onClick={() => handleNotificationToggle(item.key)}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            notifications[item.key]
-                            ? 'bg-gradient-to-r from-purple-500 to-pink-500'
-                              : 'bg-slate-200 dark:bg-slate-700'
+                            notifications[item.key] ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-slate-200 dark:bg-slate-700'
                           }`}
                         >
                           <Motion.span
@@ -571,17 +541,15 @@ export default function Settings({ initialTab = 'profile' }) {
                       </Motion.div>
                     ))}
                   </div>
-
                   <div className="flex justify-end gap-3 mt-6">
-                    <Button icon={CheckCircleIcon} onClick={saveNotifications}>
-                      Save Preferences
-                    </Button>
+                    <Button icon={CheckCircleIcon} onClick={saveNotifications}>Save Preferences</Button>
                   </div>
                 </CardContent>
               </Card>
             </Motion.div>
           )}
 
+          {/* ════════════════ APPEARANCE TAB ════════════════ */}
           {activeTab === 'appearance' && (
             <Motion.div
               key="appearance"
@@ -596,12 +564,7 @@ export default function Settings({ initialTab = 'profile' }) {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
-                    <Select
-                      label="Theme"
-                      value={theme}
-                      onChange={(e) => setTheme(e.target.value)}
-                      glassmorphic
-                    >
+                    <Select label="Theme" value={theme} onChange={(e) => setTheme(e.target.value)} glassmorphic>
                       <option value="light">Light</option>
                       <option value="dark">Dark</option>
                       <option value="auto">Auto (System)</option>
@@ -640,6 +603,7 @@ export default function Settings({ initialTab = 'profile' }) {
               </Card>
             </Motion.div>
           )}
+
         </AnimatePresence>
       </Motion.div>
     </DashboardLayout>

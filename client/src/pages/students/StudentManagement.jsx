@@ -1,6 +1,6 @@
 /**
- * Student Management Page - Ultra Modern
- * Manage all students with advanced search, filters, and actions
+ * Student Management Page — Redesigned
+ * Clean table layout with stats, filters, and clickable rows
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -8,14 +8,16 @@ import { useNavigate } from 'react-router-dom'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
-  FunnelIcon,
   UserPlusIcon,
   UserIcon,
   PencilIcon,
   TrashIcon,
   EyeIcon,
   XCircleIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  AcademicCapIcon,
+  BuildingOfficeIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/outline'
 import DashboardLayout from '../../layouts/DashboardLayout'
 import Card from '../../components/ui/Card'
@@ -24,12 +26,12 @@ import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import Modal, { ModalFooter } from '../../components/ui/Modal'
 import Badge from '../../components/ui/Badge'
+import { useAssignmentOptions } from '../../hooks/useAssignmentOptions'
 import { LoadingTable } from '../../components/ui/Loading'
 import EmptyState from '../../components/ui/EmptyState'
 import studentService from '../../services/studentService'
 import userService from '../../services/userService'
-import securityService from '../../services/securityService'
-import { DEPARTMENTS, HOSTEL_BLOCKS, VALIDATION, COURSES } from '../../constants'
+import { DEPARTMENTS, HOSTEL_BLOCKS, ALL_BLOCKS, getBlocksForHostel, VALIDATION, COURSES } from '../../constants'
 
 import toast from 'react-hot-toast'
 import { useSelector } from 'react-redux'
@@ -42,14 +44,11 @@ export default function StudentManagement() {
   const [filters, setFilters] = useState({
     hostelBlock: '',
     yearOfStudy: '',
-    status: ''
+    status: '',
+    hostelType: ''
   })
   const [selectedStudent, setSelectedStudent] = useState(null)
-  const [showViewModal, setShowViewModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [studentsOutList, setStudentsOutList] = useState([])
-  const [returnedLogs, setReturnedLogs] = useState([])
-  const [outLoading, setOutLoading] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editData, setEditData] = useState({})
   const [showAddModal, setShowAddModal] = useState(false)
@@ -71,7 +70,6 @@ export default function StudentManagement() {
       dateOfBirth: '',
       gender: '',
       permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' },
-      // emergencyContact removed from admin add flow
       parentDetails: {
         fatherName: '',
         motherName: '',
@@ -82,58 +80,38 @@ export default function StudentManagement() {
   })
 
   const currentUser = useSelector(selectUser)
-
   const navigate = useNavigate()
 
+  // Assignment options for add modal (HOD + Counsellor only — warden is auto-assigned by block)
+  const {
+    hods: availableHods,
+    counsellors: availableCounsellors
+  } = useAssignmentOptions({
+    hostelType: addData.student.hostelType,
+
+  })
+
+  // Assignment options for edit modal
+  const {
+    hods: editHods,
+    counsellors: editCounsellors
+  } = useAssignmentOptions({
+    hostelType: editData.hostelType,
+  })
+
   useEffect(() => {
-    // Allow admins, HODs and Wardens to access this page. Other roles are redirected.
-    // Wardens need access to manage/view students assigned to their block(s).
-    if (currentUser && !['admin', 'hod', 'warden'].includes(currentUser.role)) {
+    if (currentUser && !['admin', 'hod', 'warden', 'counsellor'].includes(currentUser.role)) {
       navigate('/')
     }
   }, [currentUser, navigate])
 
-  const revealPassword = async (role, id) => {
-    if (!id) return
-    try {
-      const resp = await userService.getCredential(role, id)
-      const pwd = resp?.data?.password || resp?.password || resp?.data?.data?.password
-      if (pwd) {
-        setStudents(prev => prev.map(s => s._id === id ? { ...s, generatedPassword: pwd } : s))
-        toast.success('Password revealed')
-      } else {
-        toast.error('No stored password found')
-      }
-    } catch (err) {
-      // If credential not found, guide admin to use reset flow instead of showing a raw error
-      if (err?.response?.status === 404) {
-        toast('No stored generated password found for this user. You can send a password reset notification to the user instead.', { icon: 'ℹ️' })
-      } else {
-        console.error('Failed to reveal password', err)
-        toast.error(err.response?.data?.message || 'Failed to reveal password')
-      }
-    }
-  }
-
-  const triggerReset = async (role, id) => {
-    if (!id) return
-    try {
-      await userService.resetPassword(role, id)
-      toast.success('Password reset requested and user notified')
-    } catch (err) {
-      console.error('Reset request failed', err)
-      toast.error(err.response?.data?.message || 'Failed to request password reset')
-    }
-  }
-
   const fetchStudents = useCallback(async () => {
     try {
       setLoading(true)
-      // Use HOD-specific endpoint when a hod is viewing the page to avoid 403
       const response = currentUser?.role === 'hod'
         ? await studentService.getForHod(filters)
         : await studentService.getAll(filters)
-      // Robustly extract student array from any backend response structure
+
       let studentList = []
       if (Array.isArray(response)) {
         studentList = response
@@ -151,7 +129,7 @@ export default function StudentManagement() {
       setStudents(studentList)
     } catch (error) {
       console.error('Failed to fetch students:', error)
-      setStudents([]) // Set empty array on error
+      setStudents([])
     } finally {
       setLoading(false)
     }
@@ -159,56 +137,36 @@ export default function StudentManagement() {
 
   useEffect(() => {
     fetchStudents()
-    fetchStudentsOut()
-    fetchReturnedLogs()
   }, [fetchStudents])
 
-  const fetchStudentsOut = async () => {
-    try {
-      setOutLoading(true)
-      const resp = await securityService.getStudentsOut({ limit: 10 })
-      const data = resp?.data?.data || resp?.data || resp
-      setStudentsOutList(data?.outpasses || data?.outpasses || [])
-    } catch (err) {
-      console.error('Failed to fetch students out:', err)
-      setStudentsOutList([])
-    } finally {
-      setOutLoading(false)
-    }
+  const filteredStudents = Array.isArray(students) ? students.filter(student => {
+    const fullName = `${student.firstName || ''} ${student.lastName || ''}`.toLowerCase()
+    const term = searchTerm.toLowerCase()
+    return (
+      fullName.includes(term) ||
+      student.email?.toLowerCase().includes(term) ||
+      student.rollNumber?.toLowerCase().includes(term) ||
+      student.registerNumber?.toLowerCase().includes(term)
+    )
+  }) : []
+
+  // Stats derived from student list
+  const stats = {
+    total: students.length,
+    boys: students.filter(s => s.hostelType === 'boys').length,
+    girls: students.filter(s => s.hostelType === 'girls').length,
+    active: students.filter(s => s.status === 'active' || !s.status).length,
+    suspended: students.filter(s => s.status === 'suspended').length,
   }
 
-  const fetchReturnedLogs = async () => {
-    try {
-      const resp = await securityService.getReturnedLogs({ limit: 10 })
-      const data = resp?.data?.data || resp?.data || resp
-      setReturnedLogs(data?.logs || [])
-    } catch (err) {
-      console.error('Failed to fetch returned logs:', err)
-      setReturnedLogs([])
-    }
-  }
-
-  const handleSearch = (e) => {
-    setSearchTerm(e.target.value)
-  }
-
-  const filteredStudents = Array.isArray(students) ? students.filter(student =>
-    student.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    student.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    student.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) : []
-
-  const handleView = (student) => {
-    setSelectedStudent(student)
-    setShowViewModal(true)
-  }
-
-  const handleDelete = (student) => {
+  const handleDelete = (student, e) => {
+    e.stopPropagation()
     setSelectedStudent(student)
     setShowDeleteModal(true)
   }
 
-  const handleEdit = (student) => {
+  const handleEdit = (student, e) => {
+    e.stopPropagation()
     setSelectedStudent(student)
     setEditData({
       firstName: student.firstName || '',
@@ -228,7 +186,9 @@ export default function StudentManagement() {
       gender: student.gender || '',
       parentDetails: student.parentDetails || { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' },
       permanentAddress: student.permanentAddress || { street: '', city: '', state: '', zipCode: '', country: 'India' },
-      status: student.status || 'active'
+      status: student.status || 'active',
+      hodId: student.hodId || '',
+      counsellorId: student.counsellorId || '',
     })
     setShowEditModal(true)
   }
@@ -242,34 +202,12 @@ export default function StudentManagement() {
       setEditData({})
       fetchStudents()
     } catch (err) {
-      let msg = err.response?.data?.message || 'Failed to update student';
-      const errorsArr = err.response?.data?.errors;
+      let msg = err.response?.data?.message || 'Failed to update student'
+      const errorsArr = err.response?.data?.errors
       if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
-        msg = errorsArr[0].message;
+        msg = errorsArr[0].message
       }
-      toast.error(msg);
-    }
-  }
-
-  const suspendStudent = async () => {
-    try {
-      await studentService.suspend(selectedStudent._id, 'Violation of rules')
-      toast.success('Student suspended')
-      setShowViewModal(false)
-      fetchStudents()
-    } catch {
-      toast.error('Failed to suspend')
-    }
-  }
-
-  const activateStudent = async () => {
-    try {
-      await studentService.activate(selectedStudent._id)
-      toast.success('Student activated')
-      setShowViewModal(false)
-      fetchStudents()
-    } catch {
-      toast.error('Failed to activate')
+      toast.error(msg)
     }
   }
 
@@ -279,187 +217,52 @@ export default function StudentManagement() {
       toast.success(`Student ${selectedStudent.firstName} ${selectedStudent.lastName} deleted successfully`)
       setShowDeleteModal(false)
       setSelectedStudent(null)
-      fetchStudents() // Refresh the list
+      fetchStudents()
     } catch (err) {
       console.error('Failed to delete student:', err)
-      let msg = err.response?.data?.message || 'Failed to delete student';
-      const errorsArr = err.response?.data?.errors;
+      let msg = err.response?.data?.message || 'Failed to delete student'
+      const errorsArr = err.response?.data?.errors
       if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
-        msg = errorsArr[0].message;
+        msg = errorsArr[0].message
       }
-      toast.error(msg);
+      toast.error(msg)
     }
   }
 
-  // Helper function to render table content
-  const renderTableContent = () => {
-    if (loading) {
-      return <LoadingTable rows={5} columns={6} />
-    }
-    
-    if (filteredStudents.length === 0) {
-      return (
-        <EmptyState
-          icon={FunnelIcon}
-          title="No students found"
-          description="Try adjusting your search or filter criteria"
-        />
-      )
-    }
-    
-    return (
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-          <thead className="bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10">
-            <tr>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Student
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Register No
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Department
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Year
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Hostel
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Password
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white/50 dark:bg-slate-800/50">
-            {filteredStudents.map((student, index) => (
-              <Motion.tr
-                key={student._id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.05 }}
-                whileHover={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}
-                className="transition-all duration-200"
-              >
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <Motion.div
-                      className="flex-shrink-0 h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg"
-                      whileHover={{ rotate: 360 }}
-                      transition={{ duration: 0.6 }}
-                    >
-                      <UserIcon className="h-6 w-6 text-white" />
-                    </Motion.div>
-                    <div className="ml-4">
-                      <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                        {student.firstName} {student.lastName}
-                      </div>
-                      <div className="text-sm text-slate-500 dark:text-slate-400">
-                        {student.email}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
-                  {student.rollNumber}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Badge variant="info">
-                    {student.department}
-                  </Badge>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Badge variant="primary">
-                    Year {student.yearOfStudy || student.year}
-                  </Badge>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Badge variant="success">
-                    {student.hostel}
-                  </Badge>
-                </td>
+  // Safe helper to get blocks for a hostel type
+  // const getBlocks = (hostelType) => {
+  //   if (!hostelType) return ALL_BLOCKS || []
+  //   return HOSTEL_BLOCKS[hostelType] || []
+  // }
 
-                {/* Password column - admin only */}
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-medium">
-                  {currentUser?.role === 'admin' ? (
-                    <div className="flex items-center gap-2">
-                      {(student.generatedPassword || student.generated_password || student.plainPassword || student.password) ? (
-                        <span className="font-mono text-sm text-blue-700 dark:text-blue-300">{student.generatedPassword || student.generated_password || student.plainPassword || student.password}</span>
-                      ) : (
-                        <span className="text-sm text-slate-500">—</span>
-                      )}
-                      <button onClick={() => revealPassword('student', student._id)} title="Reveal stored password" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
-                        <EyeIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
-                      </button>
-                      <button onClick={() => triggerReset('student', student._id)} title="Request password reset" className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700">
-                        <ArrowPathIcon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-sm text-slate-500">Hidden</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <div className="flex items-center gap-2">
-                    <Motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => handleView(student)}
-                      className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                      title="View Details"
-                    >
-                      <EyeIcon className="h-5 w-5" />
-                    </Motion.button>
-                    {currentUser?.role === 'admin' && (
-                      <>
-                        <Motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleEdit(student)}
-                          className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                          title="Edit"
-                        >
-                          <PencilIcon className="h-5 w-5" />
-                        </Motion.button>
-                        <Motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleDelete(student)}
-                          className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </Motion.button>
-                      </>
-                    )}
-                  </div>
-                </td>
-              </Motion.tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'active': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+      case 'suspended': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+      case 'inactive': return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+      default: return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+    }
   }
+
+  const avatarColors = [
+    'from-blue-500 to-blue-600',
+    'from-violet-500 to-purple-600',
+    'from-rose-500 to-pink-600',
+    'from-amber-500 to-orange-600',
+    'from-teal-500 to-cyan-600',
+    'from-indigo-500 to-blue-600',
+  ]
 
   return (
     <DashboardLayout>
-      <Motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="space-y-6"
-      >
+      <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-display font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
               Student Management
             </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Manage and monitor all registered students
             </p>
           </div>
@@ -467,7 +270,6 @@ export default function StudentManagement() {
             <Button
               icon={UserPlusIcon}
               variant="primary"
-              className="shadow-lg shadow-blue-500/30"
               onClick={() => setShowAddModal(true)}
             >
               Add Student
@@ -475,328 +277,320 @@ export default function StudentManagement() {
           )}
         </div>
 
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[
+            { label: 'Total Students', value: stats.total, icon: '👥', color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400', border: 'border-blue-100 dark:border-blue-800' },
+            { label: 'Boys Hostel', value: stats.boys, icon: '🏠', color: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400', border: 'border-indigo-100 dark:border-indigo-800' },
+            { label: 'Girls Hostel', value: stats.girls, icon: '🏡', color: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400', border: 'border-pink-100 dark:border-pink-800' },
+            { label: 'Active', value: stats.active, icon: '✅', color: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400', border: 'border-emerald-100 dark:border-emerald-800' },
+            { label: 'Suspended', value: stats.suspended, icon: '⚠️', color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400', border: 'border-red-100 dark:border-red-800' },
+          ].map((stat, i) => (
+            <Motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className={`rounded-xl border ${stat.border} bg-white dark:bg-slate-800 p-4 flex items-center gap-3`}
+            >
+              <span className={`text-2xl`}>{stat.icon}</span>
+              <div>
+                <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">{stat.label}</div>
+              </div>
+            </Motion.div>
+          ))}
+        </div>
+
         {/* Search and Filters */}
-        <Card glassmorphic gradient>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="md:col-span-2">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="sm:col-span-2">
               <Input
                 placeholder="Search by name, email, or register number..."
                 icon={MagnifyingGlassIcon}
                 value={searchTerm}
-                onChange={handleSearch}
-                glassmorphic
-                className="bg-white dark:bg-slate-900"
+                onChange={e => setSearchTerm(e.target.value)}
               />
             </div>
-
-            {/* Hostel Block Filter */}
             <Select
-              placeholder="All Blocks"
+              placeholder="All Hostel Types"
               options={[
-                { label: 'Block A', value: 'A' },
-                { label: 'Block B', value: 'B' },
-                { label: 'Block C', value: 'C' },
-                { label: 'Block D', value: 'D' }
+                { label: 'Boys Hostel', value: 'boys' },
+                { label: 'Girls Hostel', value: 'girls' },
               ]}
-              value={filters.hostelBlock}
-              onChange={(e) => setFilters({ ...filters, hostelBlock: e.target.value })}
-              glassmorphic
-              className="bg-white dark:bg-slate-900"
+              value={filters.hostelType}
+              onChange={e => setFilters(f => ({ ...f, hostelType: e.target.value, hostelBlock: '' }))}
             />
-
-            {/* Year of Study Filter (1st, 2nd, etc.) */}
             <Select
-              placeholder="All Years of Study"
-              options={[
-                { label: '1st Year', value: '1' },
-                { label: '2nd Year', value: '2' },
-                { label: '3rd Year', value: '3' },
-                { label: '4th Year', value: '4' },
-                { label: '5th Year', value: '5' },
-                { label: '6th Year', value: '6' }
-              ]}
+              placeholder="All Years"
+              options={[1,2,3,4,5,6].map(y => ({ label: `Year ${y}`, value: String(y) }))}
               value={filters.yearOfStudy}
-              onChange={(e) => setFilters({ ...filters, yearOfStudy: e.target.value })}
-              glassmorphic
-              className="bg-white dark:bg-slate-900"
+              onChange={e => setFilters(f => ({ ...f, yearOfStudy: e.target.value }))}
             />
           </div>
 
           {/* Active Filters */}
           <AnimatePresence>
-            {(filters.hostelBlock || filters.yearOfStudy || searchTerm) && (
+            {(filters.hostelBlock || filters.yearOfStudy || filters.hostelType || searchTerm) && (
               <Motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mt-4 flex items-center gap-2"
+                className="mt-3 flex flex-wrap items-center gap-2"
               >
-                <span className="text-sm text-slate-600 dark:text-slate-400">
-                  Active filters:
-                </span>
-                {searchTerm && (
-                  <Badge variant="primary">
-                    Search: {searchTerm}
-                  </Badge>
-                )}
-                {filters.hostelBlock && (
-                  <Badge variant="info">
-                    Block: {filters.hostelBlock}
-                  </Badge>
-                )}
-                {filters.yearOfStudy && (
-                  <Badge variant="success">
-                    Year: {filters.yearOfStudy}
-                  </Badge>
-                )}
+                <span className="text-xs text-slate-500">Active filters:</span>
+                {searchTerm && <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium dark:bg-blue-900/30 dark:text-blue-300">Search: {searchTerm}</span>}
+                {filters.hostelType && <span className="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium dark:bg-indigo-900/30 dark:text-indigo-300">{filters.hostelType === 'boys' ? 'Boys Hostel' : 'Girls Hostel'}</span>}
+                {filters.yearOfStudy && <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium dark:bg-emerald-900/30 dark:text-emerald-300">Year {filters.yearOfStudy}</span>}
                 <button
-                  onClick={() => {
-                    setSearchTerm('')
-                    setFilters({ hostelBlock: '', year: '', status: '' })
-                  }}
-                  className="ml-auto text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                  onClick={() => { setSearchTerm(''); setFilters({ hostelBlock: '', yearOfStudy: '', status: '', hostelType: '' }) }}
+                  className="ml-auto text-xs text-slate-500 hover:text-red-500 transition-colors"
                 >
                   Clear all
                 </button>
               </Motion.div>
             )}
           </AnimatePresence>
-        </Card>
+        </div>
 
         {/* Students Table */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <Card glassmorphic>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-display font-bold text-slate-900 dark:text-white">
-                  Students List
-                  {' '}
-                  <span className="ml-3 text-sm font-normal text-slate-500 dark:text-slate-400">({filteredStudents.length} students)</span>
-                </h2>
-                <Button variant="ghost" size="sm" icon={ArrowPathIcon} onClick={fetchStudents}>Refresh</Button>
-              </div>
-
-              {renderTableContent()}
-            </Card>
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                Students List
+              </h2>
+              <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium">
+                {filteredStudents.length}
+              </span>
+            </div>
+            <Button variant="ghost" size="sm" icon={ArrowPathIcon} onClick={fetchStudents}>
+              Refresh
+            </Button>
           </div>
 
-          {/* Right column: Security quick panels */}
-          <div className="space-y-4">
-            <Card>
-              <h3 className="font-semibold">Students Currently Out</h3>
-              <p className="text-sm text-slate-500">Students verified by security and not yet returned</p>
-              <div className="mt-3 space-y-2">
-                {outLoading ? (
-                  <div className="text-sm text-slate-500">Loading...</div>
-                ) : (studentsOutList.length === 0 ? (
-                  <div className="text-sm text-slate-400">No students currently out</div>
-                ) : (
-                  studentsOutList.map(o => (
-                    <div key={o._id} className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium">{o.student?.firstName} {o.student?.lastName}</div>
-                        <div className="text-xs text-slate-500">{o.student?.rollNumber} • Block {o.student?.hostelBlock}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-slate-400">{o.exitTime ? new Date(o.exitTime).toLocaleTimeString() : ''}</div>
-                        <Button size="xs" variant="ghost" onClick={() => handleView(o.student)} className="mt-1">View</Button>
-                      </div>
-                    </div>
-                  ))
-                ))}
-              </div>
-            </Card>
-
-            <Card>
-              <h3 className="font-semibold">Recent Returns (History)</h3>
-              <p className="text-sm text-slate-500">Students who have returned recently</p>
-              <div className="mt-3 space-y-2">
-                {returnedLogs.length === 0 ? (
-                  <div className="text-sm text-slate-400">No recent returns</div>
-                ) : (
-                  returnedLogs.map(log => (
-                    <div key={log._id} className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium">{log.student?.firstName} {log.student?.lastName}</div>
-                        <div className="text-xs text-slate-500">{log.student?.rollNumber} • Block {log.student?.hostelBlock}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-slate-400">{log.actualReturnTime ? new Date(log.actualReturnTime).toLocaleString() : ''}</div>
-                        <Button size="xs" variant="ghost" onClick={() => handleView(log.student)} className="mt-1">View</Button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </Card>
-          </div>
+          {loading ? (
+            <div className="p-6">
+              <LoadingTable rows={5} columns={6} />
+            </div>
+          ) : filteredStudents.length === 0 ? (
+            <div className="py-16">
+              <EmptyState
+                icon={UserIcon}
+                title="No students found"
+                description="Try adjusting your search or filter criteria"
+              />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Student</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Reg No.</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Department</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Year</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Room</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {filteredStudents.map((student, index) => (
+                    <Motion.tr
+                      key={student._id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: index * 0.03 }}
+                      onClick={() => navigate(`/students/${student._id}`)}
+                      className="group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-9 w-9 rounded-full bg-gradient-to-br ${avatarColors[index % avatarColors.length]} flex items-center justify-center flex-shrink-0`}>
+                            <span className="text-white text-sm font-semibold">
+                              {student.firstName?.charAt(0)?.toUpperCase() || 'S'}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                              {student.firstName} {student.lastName}
+                            </div>
+                            <div className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[180px]">
+                              {student.email}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-mono text-slate-700 dark:text-slate-300">
+                          {student.rollNumber || '—'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">{student.department || '—'}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                          Year {student.yearOfStudy || student.year || '—'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          {student.hostelBlock && student.roomNumber
+                            ? `${student.hostelBlock}-${student.roomNumber}`
+                            : student.hostelBlock || '—'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(student.status)}`}>
+                          {student.status || 'active'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => navigate(`/students/${student._id}`)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                            title="View"
+                          >
+                            <EyeIcon className="h-4 w-4" />
+                          </button>
+                          {currentUser?.role === 'admin' && (
+                            <>
+                              <button
+                                onClick={(e) => handleEdit(student, e)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                                title="Edit"
+                              >
+                                <PencilIcon className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={(e) => handleDelete(student, e)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                title="Delete"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                          <ChevronRightIcon className="h-4 w-4 text-slate-300 dark:text-slate-600 ml-1 group-hover:text-blue-400 transition-colors" />
+                        </div>
+                      </td>
+                    </Motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        
-      </Motion.div>
+      </div>
 
-      {/* View Student Modal */}
-      <Modal
-        isOpen={showViewModal}
-        onClose={() => setShowViewModal(false)}
-        title="Student Details"
-        gradient
-        size="lg"
-      >
-        {selectedStudent && (
-          <div className="space-y-6">
-            {/* Student Header */}
-            <div className="flex items-center gap-4">
-              <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg">
-                <span className="text-white font-bold text-3xl">
-                  {selectedStudent.name?.charAt(0) || 'S'}
-                </span>
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {selectedStudent.name}
-                </h3>
-                <p className="text-slate-500 dark:text-slate-400">
-                  {selectedStudent.email}
-                </p>
-              </div>
-            </div>
-
-            {/* Student Info Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Register Number</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  {selectedStudent.registerNumber || 'N/A'}
-                </p>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Hostel Block</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  Block {selectedStudent.hostelBlock || 'N/A'}
-                </p>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Academic Year</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  {selectedStudent.year || 'N/A'}
-                </p>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Phone</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  {selectedStudent.phone || 'N/A'}
-                </p>
-              </div>
-              {/* Parent Info */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Parent / Guardian</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                  {selectedStudent.parentDetails?.fatherName || selectedStudent.parentDetails?.motherName || 'N/A'}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {selectedStudent.parentDetails?.guardianPhone ? `Phone: ${selectedStudent.parentDetails.guardianPhone}` : ''}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {selectedStudent.parentDetails?.guardianEmail ? `Email: ${selectedStudent.parentDetails.guardianEmail}` : ''}
-                </p>
-              </div>
-            </div>
-
-            <ModalFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setShowViewModal(false)}
-              >
-                Close
-              </Button>
-              {currentUser?.role === 'admin' && (
-                <>
-                  <Button variant="warning" onClick={suspendStudent}>
-                    Suspend
-                  </Button>
-                  <Button variant="success" onClick={activateStudent}>
-                    Activate
-                  </Button>
-                </>
-              )}
-            </ModalFooter>
-          </div>
-        )}
-      </Modal>
-
-      {/* Add Student Modal */}
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="Add Student"
-        size="md"
-      >
+      {/* ── Add Student Modal ── */}
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Add Student" size="md">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <Input label="First Name" value={addData.firstName} onChange={(e)=>setAddData(prev=>({...prev, firstName: e.target.value}))} />
-            <Input label="Last Name" value={addData.lastName} onChange={(e)=>setAddData(prev=>({...prev, lastName: e.target.value}))} />
+            <Input label="First Name" value={addData.firstName} onChange={e => setAddData(p => ({ ...p, firstName: e.target.value }))} />
+            <Input label="Last Name" value={addData.lastName} onChange={e => setAddData(p => ({ ...p, lastName: e.target.value }))} />
           </div>
-          <Input label="Email" type="email" value={addData.email} onChange={(e)=>setAddData(prev=>({...prev, email: e.target.value}))} />
-          <Input label="Phone" type="tel" value={addData.phone} onChange={(e)=>setAddData(prev=>({...prev, phone: e.target.value}))} />
-          {/* Password is generated by the system and emailed to the student. Admins do not set passwords here. */}
-          <p className="text-sm text-slate-500 dark:text-slate-400">A secure password will be generated and emailed to the student. They will be required to change it on first login.</p>
+          <Input label="Email" type="email" value={addData.email} onChange={e => setAddData(p => ({ ...p, email: e.target.value }))} />
+          <Input label="Phone" type="tel" value={addData.phone} onChange={e => setAddData(p => ({ ...p, phone: e.target.value }))} />
+          <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+            📧 A secure password will be generated and emailed to the student on first login.
+          </p>
+
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Register Number" value={addData.student.rollNumber} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, rollNumber: e.target.value}}))} />
-            <Input label="Academic Year" type="number" placeholder="e.g. 2025" value={addData.student.year} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, year: e.target.value}}))} />
+            <Input label="Register Number" value={addData.student.rollNumber} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, rollNumber: e.target.value } }))} />
+            <Input label="Academic Year" type="number" placeholder="e.g. 2025" value={addData.student.year} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, year: e.target.value } }))} />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
-            <Select label="Course" value={addData.student.course} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, course: e.target.value}}))}>
+            <Select label="Course" value={addData.student.course} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, course: e.target.value } }))}>
               <option value="">Select Course</option>
-              {/** Courses come from constants */}
               {COURSES.map(c => <option key={c} value={c}>{c}</option>)}
             </Select>
-            <Select label="Semester" value={addData.student.semester} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, semester: e.target.value}}))}>
+            <Select label="Semester" value={addData.student.semester} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, semester: e.target.value } }))}>
               <option value="">Select Semester</option>
               {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
             </Select>
           </div>
-          {/* Year of Study select (1..6) */}
+
           <div className="grid grid-cols-2 gap-4">
-            <Select label="Year of Study" value={addData.student.yearOfStudy} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, yearOfStudy: e.target.value}}))}>
-              <option value="">Select Year of Study</option>
-              {[1,2,3,4,5,6].map(y => <option key={y} value={y}>{y}{y===1? 'st': y===2? 'nd': y===3? 'rd':'th'} Year</option>)}
+            <Select label="Year of Study" value={addData.student.yearOfStudy} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, yearOfStudy: e.target.value } }))}>
+              <option value="">Select Year</option>
+              {[1,2,3,4,5,6].map(y => <option key={y} value={y}>{y}{y===1?'st':y===2?'nd':y===3?'rd':'th'} Year</option>)}
             </Select>
-            <div />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Department" value={addData.student.department} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, department: e.target.value}}))}>
+            <Select label="Department" value={addData.student.department} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, department: e.target.value } }))}>
               <option value="">Select Department</option>
               {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
             </Select>
-            <Select label="Hostel Type" value={addData.student.hostelType} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, hostelType: e.target.value}}))}>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Hostel Type" value={addData.student.hostelType} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, hostelType: e.target.value, hostelBlock: '' } }))}>
               <option value="">Select Hostel Type</option>
               <option value="boys">Boys Hostel</option>
               <option value="girls">Girls Hostel</option>
             </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Hostel Block" value={addData.student.hostelBlock} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, hostelBlock: e.target.value}}))}>
+            <Select label="Hostel Block" value={addData.student.hostelBlock} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, hostelBlock: e.target.value } }))}>
               <option value="">Select Block</option>
-              {HOSTEL_BLOCKS.map(b => <option key={b} value={b}>Block {b}</option>)}
+              {getBlocksForHostel(addData.student.hostelType).map(b => <option key={b} value={b}>Block {b}</option>)}
             </Select>
-            <Input label="Room Number" value={addData.student.roomNumber} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, roomNumber: e.target.value}}))} />
-          </div>
-          {/* Permanent Address */}
-          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Permanent Address</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Street" value={addData.student.permanentAddress.street} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, street: e.target.value}}}))} />
-            <Input label="City" value={addData.student.permanentAddress.city} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, city: e.target.value}}}))} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="State" value={addData.student.permanentAddress.state} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, state: e.target.value}}}))} />
-            <Input label="Zip Code" value={addData.student.permanentAddress.zipCode} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, permanentAddress: {...prev.student.permanentAddress, zipCode: e.target.value}}}))} />
           </div>
 
-          {/* Date of Birth and Gender */}
+          <Input label="Room Number" value={addData.student.roomNumber} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, roomNumber: e.target.value } }))} />
+
+          {/* Staff Assignment — Warden is auto-assigned by block */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Staff Assignment</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+              Warden is auto-assigned based on hostel block. Assign HOD and Counsellor manually.
+            </p>
+            <div className="space-y-3">
+              <Select
+                label="Assign HOD"
+                value={addData.student.hodId || ''}
+                onChange={e => setAddData(p => ({ ...p, student: { ...p.student, hodId: e.target.value } }))}
+              >
+                <option value="">Assign a Hod</option>
+                {availableHods.map(h => (
+                  <option key={h._id} value={h._id}>
+                    {[h.firstName, h.lastName].filter(Boolean).join(' ') || h.name || 'Unnamed'} — {h.department}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="Assign Counsellor"
+                value={addData.student.counsellorId || ''}
+                onChange={e => setAddData(p => ({ ...p, student: { ...p.student, counsellorId: e.target.value } }))}
+              >
+                <option value="">Assign a Counsellor</option>
+                {availableCounsellors.map(c => (
+                  <option key={c._id} value={c._id}>
+                    {c.firstName} {c.lastName} — {c.department}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          {/* Permanent Address */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Permanent Address</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Street" value={addData.student.permanentAddress.street} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, permanentAddress: { ...p.student.permanentAddress, street: e.target.value } } }))} />
+              <Input label="City" value={addData.student.permanentAddress.city} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, permanentAddress: { ...p.student.permanentAddress, city: e.target.value } } }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <Input label="State" value={addData.student.permanentAddress.state} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, permanentAddress: { ...p.student.permanentAddress, state: e.target.value } } }))} />
+              <Input label="Zip Code" value={addData.student.permanentAddress.zipCode} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, permanentAddress: { ...p.student.permanentAddress, zipCode: e.target.value } } }))} />
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Date of Birth" type="date" value={addData.student.dateOfBirth} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, dateOfBirth: e.target.value}}))} />
-            <Select label="Gender" value={addData.student.gender} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, gender: e.target.value}}))}>
+            <Input label="Date of Birth" type="date" value={addData.student.dateOfBirth} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, dateOfBirth: e.target.value } }))} />
+            <Select label="Gender" value={addData.student.gender} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, gender: e.target.value } }))}>
               <option value="">Select Gender</option>
               <option value="male">Male</option>
               <option value="female">Female</option>
@@ -804,23 +598,23 @@ export default function StudentManagement() {
             </Select>
           </div>
 
-          {/* Emergency Contact removed from admin add form */}
-          {/* Parent / Guardian Details */}
-          <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian Details</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Father's Name" value={addData.student.parentDetails.fatherName} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, fatherName: e.target.value}}}))} />
-            <Input label="Mother's Name" value={addData.student.parentDetails.motherName} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, motherName: e.target.value}}}))} />
+          {/* Parent Details */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Parent / Guardian Details</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Father's Name" value={addData.student.parentDetails.fatherName} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, parentDetails: { ...p.student.parentDetails, fatherName: e.target.value } } }))} />
+              <Input label="Mother's Name" value={addData.student.parentDetails.motherName} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, parentDetails: { ...p.student.parentDetails, motherName: e.target.value } } }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <Input label="Guardian Phone" value={addData.student.parentDetails.guardianPhone} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, parentDetails: { ...p.student.parentDetails, guardianPhone: e.target.value } } }))} />
+              <Input label="Guardian Email" value={addData.student.parentDetails.guardianEmail} onChange={e => setAddData(p => ({ ...p, student: { ...p.student, parentDetails: { ...p.student.parentDetails, guardianEmail: e.target.value } } }))} />
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Guardian Phone" value={addData.student.parentDetails.guardianPhone} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, guardianPhone: e.target.value}}}))} />
-            <Input label="Guardian Email" value={addData.student.parentDetails.guardianEmail} onChange={(e)=>setAddData(prev=>({...prev, student: {...prev.student, parentDetails: {...prev.student.parentDetails, guardianEmail: e.target.value}}}))} />
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={()=>setShowAddModal(false)}>Cancel</Button>
-            <Button variant="primary" onClick={async ()=>{
-              try{
-                // Compose payload expected by managed create endpoint
-                // basic client-side validation for phone & parent contact fields
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setShowAddModal(false)}>Cancel</Button>
+            <Button variant="primary" onClick={async () => {
+              try {
                 const phone = addData.phone?.trim()
                 if (phone && !VALIDATION.PHONE_PATTERN.test(phone)) {
                   toast.error('Phone must be 10-15 digits')
@@ -848,190 +642,207 @@ export default function StudentManagement() {
                     year: Number(addData.student.year),
                     yearOfStudy: Number(addData.student.yearOfStudy),
                     course: addData.student.course,
-                    semester: addData.student.semester,
+                    semester: Number(addData.student.semester),
                     department: addData.student.department,
                     hostelType: addData.student.hostelType,
                     hostelBlock: addData.student.hostelBlock,
                     roomNumber: addData.student.roomNumber,
                     dateOfBirth: addData.student.dateOfBirth,
                     gender: addData.student.gender,
-                      parentDetails: addData.student.parentDetails,
-                      permanentAddress: addData.student.permanentAddress
+                    parentDetails: addData.student.parentDetails,
+                    permanentAddress: addData.student.permanentAddress,
+                    ...(addData.student.hodId ? { hodId: addData.student.hodId } : {}),
+                    ...(addData.student.counsellorId ? { counsellorId: addData.student.counsellorId } : {}),
+                    // Warden is auto-assigned by the backend based on hostelBlock
                   }
                 }
-                const res = await studentService.create(payload)
+
+                const res = await userService.create(payload)
                 toast.success('Student created successfully')
 
-                // Inform admin that credentials were generated and emailed
                 try {
                   const respData = res?.data || res
-                  if (respData?.message) {
-                    // If backend provided a friendly message about email sending, show it
-                    toast.success(respData.message)
-                  } else {
-                    toast('A secure password has been generated and emailed to the student.', { icon: '✉️' })
-                  }
-
-                  // Expose verification code in development if backend included it
+                  if (respData?.message) toast.success(respData.message)
+                  else toast('A secure password has been generated and emailed to the student.', { icon: '✉️' })
                   const verificationCode = respData?.data?.verificationCode || respData?.verificationCode
-                  if (verificationCode) {
-                    toast(`Verification code (dev): ${verificationCode}`, { icon: '🔑' })
-                  }
+                  if (verificationCode) toast(`Verification code (dev): ${verificationCode}`, { icon: '🔑' })
                 } catch (e) {
-                  // Non-critical: ignore any toast extraction errors
                   console.debug('Could not extract email info from response', e)
                 }
 
                 setShowAddModal(false)
-                setAddData({ firstName: '', lastName: '', email: '', phone: '', student: { rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '', department: '', hostelType: '', hostelBlock: '', roomNumber: '', dateOfBirth: '', gender: '', permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' }, parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' } } })
+                setAddData({
+                  firstName: '', lastName: '', email: '', phone: '',
+                  student: {
+                    rollNumber: '', year: '', yearOfStudy: '', course: '', semester: '',
+                    department: '', hostelType: '', hostelBlock: '', roomNumber: '',
+                    dateOfBirth: '', gender: '',
+                    permanentAddress: { street: '', city: '', state: '', zipCode: '', country: 'India' },
+                    parentDetails: { fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '' }
+                  }
+                })
                 fetchStudents()
-              }catch(err){
+              } catch (err) {
                 console.error('Failed to create student:', err)
-                let msg = err.response?.data?.message || 'Failed to create student';
-                const errorsArr = err.response?.data?.errors;
-                if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) {
-                  msg = errorsArr[0].message;
-                }
-                toast.error(msg);
+                let msg = err.response?.data?.message || 'Failed to create student'
+                const errorsArr = err.response?.data?.errors
+                if (Array.isArray(errorsArr) && errorsArr.length > 0 && errorsArr[0].message) msg = errorsArr[0].message
+                toast.error(msg)
               }
-            }}>Create</Button>
+            }}>Create Student</Button>
           </div>
         </div>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        title="Edit Student"
-        size="md"
-      >
+      {/* ── Edit Student Modal ── */}
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Student" size="md">
         <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="First Name" value={editData.firstName || ''} onChange={(e)=>setEditData(prev=>({...prev, firstName:e.target.value}))} />
-                <Input label="Last Name" value={editData.lastName || ''} onChange={(e)=>setEditData(prev=>({...prev, lastName:e.target.value}))} />
-              </div>
-              <Input label="Email" type="email" value={editData.email || ''} onChange={(e)=>setEditData(prev=>({...prev, email:e.target.value}))} />
-              <Input label="Phone" type="tel" value={editData.phone || ''} onChange={(e)=>setEditData(prev=>({...prev, phone:e.target.value}))} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="First Name" value={editData.firstName || ''} onChange={e => setEditData(p => ({ ...p, firstName: e.target.value }))} />
+            <Input label="Last Name" value={editData.lastName || ''} onChange={e => setEditData(p => ({ ...p, lastName: e.target.value }))} />
+          </div>
+          <Input label="Email" type="email" value={editData.email || ''} onChange={e => setEditData(p => ({ ...p, email: e.target.value }))} />
+          <Input label="Phone" type="tel" value={editData.phone || ''} onChange={e => setEditData(p => ({ ...p, phone: e.target.value }))} />
 
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Register / Roll Number" value={editData.rollNumber || ''} onChange={(e)=>setEditData(prev=>({...prev, rollNumber:e.target.value}))} />
-                <Input label="Academic Year" type="number" value={editData.year || ''} onChange={(e)=>setEditData(prev=>({...prev, year:e.target.value}))} />
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Register / Roll Number" value={editData.rollNumber || ''} onChange={e => setEditData(p => ({ ...p, rollNumber: e.target.value }))} />
+            <Input label="Academic Year" type="number" value={editData.year || ''} onChange={e => setEditData(p => ({ ...p, year: e.target.value }))} />
+          </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Select label="Course" value={editData.course || ''} onChange={(e)=>setEditData(prev=>({...prev, course: e.target.value}))}>
-                  <option value="">Select Course</option>
-                  {COURSES.map(c => <option key={c} value={c}>{c}</option>)}
-                </Select>
-                <Select label="Semester" value={editData.semester || ''} onChange={(e)=>setEditData(prev=>({...prev, semester:e.target.value}))}>
-                  <option value="">Select Semester</option>
-                  {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
-                </Select>
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Course" value={editData.course || ''} onChange={e => setEditData(p => ({ ...p, course: e.target.value }))}>
+              <option value="">Select Course</option>
+              {COURSES.map(c => <option key={c} value={c}>{c}</option>)}
+            </Select>
+            <Select label="Semester" value={editData.semester || ''} onChange={e => setEditData(p => ({ ...p, semester: e.target.value }))}>
+              <option value="">Select Semester</option>
+              {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>Semester {s}</option>)}
+            </Select>
+          </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Select label="Department" value={editData.department || ''} onChange={(e)=>setEditData(prev=>({...prev, department: e.target.value}))}>
-                  <option value="">Select Department</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </Select>
-                <Select label="Hostel Type" value={editData.hostelType || ''} onChange={(e)=>setEditData(prev=>({...prev, hostelType: e.target.value}))}>
-                  <option value="">Select Hostel Type</option>
-                  <option value="boys">Boys Hostel</option>
-                  <option value="girls">Girls Hostel</option>
-                </Select>
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Department" value={editData.department || ''} onChange={e => setEditData(p => ({ ...p, department: e.target.value }))}>
+              <option value="">Select Department</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </Select>
+            <Select label="Hostel Type" value={editData.hostelType || ''} onChange={e => setEditData(p => ({ ...p, hostelType: e.target.value, hostelBlock: '' }))}>
+              <option value="">Select Hostel Type</option>
+              <option value="boys">Boys Hostel</option>
+              <option value="girls">Girls Hostel</option>
+            </Select>
+          </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Select label="Hostel Block" value={editData.hostelBlock || ''} onChange={(e)=>setEditData(prev=>({...prev, hostelBlock:e.target.value}))}>
-                  <option value="">Select Block</option>
-                  {HOSTEL_BLOCKS.map(b => <option key={b} value={b}>Block {b}</option>)}
-                </Select>
-                <Input label="Room Number" value={editData.roomNumber || ''} onChange={(e)=>setEditData(prev=>({...prev, roomNumber:e.target.value}))} />
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Hostel Block" value={editData.hostelBlock || ''} onChange={e => setEditData(p => ({ ...p, hostelBlock: e.target.value }))}>
+              <option value="">Select Block</option>
+              {getBlocksForHostel(editData.hostelType).map(b => <option key={b} value={b}>Block {b}</option>)}
+            </Select>
+            <Input label="Room Number" value={editData.roomNumber || ''} onChange={e => setEditData(p => ({ ...p, roomNumber: e.target.value }))} />
+          </div>
 
-              {/* Permanent Address */}
-              <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Permanent Address</div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Street" value={editData.permanentAddress?.street || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, street: e.target.value}}))} />
-                <Input label="City" value={editData.permanentAddress?.city || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, city: e.target.value}}))} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="State" value={editData.permanentAddress?.state || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, state: e.target.value}}))} />
-                <Input label="Zip Code" value={editData.permanentAddress?.zipCode || ''} onChange={(e)=>setEditData(prev=>({...prev, permanentAddress: {...prev.permanentAddress, zipCode: e.target.value}}))} />
-              </div>
+          {/* Address */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Permanent Address</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Street" value={editData.permanentAddress?.street || ''} onChange={e => setEditData(p => ({ ...p, permanentAddress: { ...p.permanentAddress, street: e.target.value } }))} />
+              <Input label="City" value={editData.permanentAddress?.city || ''} onChange={e => setEditData(p => ({ ...p, permanentAddress: { ...p.permanentAddress, city: e.target.value } }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <Input label="State" value={editData.permanentAddress?.state || ''} onChange={e => setEditData(p => ({ ...p, permanentAddress: { ...p.permanentAddress, state: e.target.value } }))} />
+              <Input label="Zip Code" value={editData.permanentAddress?.zipCode || ''} onChange={e => setEditData(p => ({ ...p, permanentAddress: { ...p.permanentAddress, zipCode: e.target.value } }))} />
+            </div>
+          </div>
 
-              {/* Date of Birth and Gender in Edit form */}
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Date of Birth" type="date" value={editData.dateOfBirth || ''} onChange={(e)=>setEditData(prev=>({...prev, dateOfBirth: e.target.value}))} />
-                <Select label="Gender" value={editData.gender || ''} onChange={(e)=>setEditData(prev=>({...prev, gender: e.target.value}))}>
-                  <option value="">Select Gender</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="other">Other</option>
-                </Select>
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Date of Birth" type="date" value={editData.dateOfBirth || ''} onChange={e => setEditData(p => ({ ...p, dateOfBirth: e.target.value }))} />
+            <Select label="Gender" value={editData.gender || ''} onChange={e => setEditData(p => ({ ...p, gender: e.target.value }))}>
+              <option value="">Select Gender</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </Select>
+          </div>
 
-              {/* Emergency Contact removed from admin edit form */}
+          {/* Parent Details */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Parent / Guardian</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Father's Name" value={editData.parentDetails?.fatherName || ''} onChange={e => setEditData(p => ({ ...p, parentDetails: { ...p.parentDetails, fatherName: e.target.value } }))} />
+              <Input label="Mother's Name" value={editData.parentDetails?.motherName || ''} onChange={e => setEditData(p => ({ ...p, parentDetails: { ...p.parentDetails, motherName: e.target.value } }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <Input label="Guardian Phone" value={editData.parentDetails?.guardianPhone || ''} onChange={e => setEditData(p => ({ ...p, parentDetails: { ...p.parentDetails, guardianPhone: e.target.value } }))} />
+              <Input label="Guardian Email" value={editData.parentDetails?.guardianEmail || ''} onChange={e => setEditData(p => ({ ...p, parentDetails: { ...p.parentDetails, guardianEmail: e.target.value } }))} />
+            </div>
+          </div>
 
-              <div className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Parent / Guardian</div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Father's Name" value={editData.parentDetails?.fatherName || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, fatherName: e.target.value}}))} />
-                <Input label="Mother's Name" value={editData.parentDetails?.motherName || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, motherName: e.target.value}}))} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Guardian Phone" value={editData.parentDetails?.guardianPhone || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, guardianPhone: e.target.value}}))} />
-                <Input label="Guardian Email" value={editData.parentDetails?.guardianEmail || ''} onChange={(e)=>setEditData(prev=>({...prev, parentDetails: {...prev.parentDetails, guardianEmail: e.target.value}}))} />
-              </div>
+          <Select label="Status" value={editData.status || 'active'} onChange={e => setEditData(p => ({ ...p, status: e.target.value }))}>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="suspended">Suspended</option>
+          </Select>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Select label="Status" value={editData.status || 'active'} onChange={(e)=>setEditData(prev=>({...prev, status:e.target.value}))}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="suspended">Suspended</option>
-                </Select>
-              </div>
+          {/* Staff Assignment — HOD and Counsellor only */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Staff Assignment</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+              Warden is auto-assigned based on hostel block.
+            </p>
+            <div className="space-y-3">
+              <Select
+                label="HOD"
+                value={editData.hodId || ''}
+                onChange={e => setEditData(p => ({ ...p, hodId: e.target.value }))}
+              >
+                <option value="">— Keep current —</option>
+                {editHods.map(h => (
+                <option key={h._id} value={h._id}>
+                  {[h.firstName, h.lastName].filter(Boolean).join(' ') || h.name || 'Unnamed'} — {h.department}
+                </option>
+              ))}
+              </Select>
+              <Select
+                label="Counsellor"
+                value={editData.counsellorId || ''}
+                onChange={e => setEditData(p => ({ ...p, counsellorId: e.target.value }))}
+              >
+                <option value="">— Keep current —</option>
+                {editCounsellors.map(c => (
+                  <option key={c._id} value={c._id}>
+                    {c.firstName} {c.lastName} — {c.department}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
           <ModalFooter>
-            <Button variant="ghost" onClick={()=>setShowEditModal(false)}>Cancel</Button>
-            <Button variant="primary" onClick={saveEdit}>Save</Button>
+            <Button variant="ghost" onClick={() => setShowEditModal(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
           </ModalFooter>
         </div>
       </Modal>
 
-      <Modal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        title="Confirm Delete"
-        size="md"
-      >
+      {/* ── Delete Confirmation Modal ── */}
+      <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Confirm Delete" size="sm">
         <div className="space-y-4">
           <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl">
-            <XCircleIcon className="h-8 w-8 text-red-600 dark:text-red-400" />
+            <XCircleIcon className="h-8 w-8 text-red-500 flex-shrink-0" />
             <div>
-              <p className="font-semibold text-red-900 dark:text-red-100">
-                Delete Student?
-              </p>
-              <p className="text-sm text-red-700 dark:text-red-300">
-                This action cannot be undone
-              </p>
+              <p className="font-semibold text-red-900 dark:text-red-100">Delete Student?</p>
+              <p className="text-sm text-red-600 dark:text-red-300">This action cannot be undone</p>
             </div>
           </div>
-          <p className="text-slate-600 dark:text-slate-400">
-            Are you sure you want to delete <strong>{selectedStudent?.name}</strong>? All their data will be permanently removed.
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Are you sure you want to delete{' '}
+            <strong className="text-slate-900 dark:text-white">
+              {selectedStudent?.firstName} {selectedStudent?.lastName}
+            </strong>?
+            All their data will be permanently removed.
           </p>
           <ModalFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setShowDeleteModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={confirmDelete}
-            >
-              Delete Student
-            </Button>
+            <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+            <Button variant="danger" onClick={confirmDelete}>Delete Student</Button>
           </ModalFooter>
         </div>
       </Modal>

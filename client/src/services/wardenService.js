@@ -166,7 +166,7 @@ export const wardenService = {
    * @returns {Promise}
    */
   getDashboardStats: async () => {
-    return await apiClient.get('/warden/dashboard/stats')
+    return await apiClient.get('/wardens/dashboard/stats')
   },
 
   /**
@@ -221,8 +221,8 @@ export const wardenService = {
    * @returns {Promise}
    */
   getBlockStats: async () => {
-    return await apiClient.get('/warden/block-stats')
-  },
+    return await apiClient.get('/students/statistics')
+},
 
   /**
    * Contact parent
@@ -230,8 +230,8 @@ export const wardenService = {
    * @param {Object} message
    * @returns {Promise}
    */
-  contactParent: async (studentId, message) => {
-    return await apiClient.post(`/warden/contact-parent/${studentId}`, message)
+  contactParent: async (requestId, message) => {
+    return await apiClient.post(`/outpass/parent/request-otp/${requestId}`, message)
   },
 
   /**
@@ -240,7 +240,7 @@ export const wardenService = {
    * @returns {Promise}
    */
   getActivityFeed: async (params = {}) => {
-    return await apiClient.get('/warden/activity', { params })
+    return await apiClient.get('/outpass/warden/all', { params })
   },
 
   /**
@@ -249,8 +249,8 @@ export const wardenService = {
    * @returns {Promise}
    */
   getRecentActivities: async (limit = 10) => {
-    return await apiClient.get('/warden/recent-activities', { params: { limit } })
-  }
+    return await apiClient.get('/outpass/warden/all', { params: { limit } })
+  },
 }
 
 export const {

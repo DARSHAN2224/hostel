@@ -10,6 +10,7 @@ import RoleLogin from './pages/auth/RoleLogin'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
+import StudentDetail from './pages/students/StudentDetail'
 import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import StudentManagement from './pages/students/StudentManagement'
@@ -20,6 +21,12 @@ import StudentDashboard from './pages/students/StudentDashboard'
 import OutpassManagement from './pages/outpass/OutpassManagement'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import SecurityDashboard from './pages/security/SecurityDashboard'
+import CounsellorDashboard from './pages/counsellor/CounsellorDashboard'
+import CounsellorManagement from './pages/counsellor/CounsellorManagement'
+import { useEffect } from 'react'
+// import { useSelector } from 'react-redux'
+// import { selectUser } from './store/authSlice'
+import socketService from './services/socketService'
 import SecurityManagement from './pages/security/SecurityManagement'
 import SecurityScanner from './pages/security/SecurityScanner'
 import HODDashboard from './pages/hod/HODDashboard'
@@ -28,6 +35,7 @@ import OutpassHistory from './pages/history/OutpassHistory'
 import Reports from './pages/reports/Reports'
 import ProtectedRoute from './components/ProtectedRoute'
 import PublicRoute from './components/PublicRoute'
+import AttendanceManager from './pages/attendance/AttendanceManager'
 import RoleBasedRoute from './components/RoleBasedRoute'
 import { ROUTES } from './constants'
 import { ThemeProvider } from './context/ThemeContext'
@@ -46,14 +54,27 @@ function DashboardRouter() {
   if (role === 'student') return <Navigate to="/student/dashboard" replace />
   if (role === 'security') return <Navigate to="/security/dashboard" replace />
   if (role === 'hod') return <Navigate to="/hod/dashboard" replace />
+  if (role === 'counsellor') return <Navigate to="/counsellor/dashboard" replace />
 
   // Default: warden and any other roles use the unified dashboard
   return <Dashboard />
 }
-
+function SocketInitializer() {
+  const user = useSelector(selectUser)
+  useEffect(() => {
+    if (user) {
+      const token = localStorage.getItem('accessToken') || ''
+      socketService.connect() 
+    } else {
+      socketService.disconnect()
+    }
+  }, [user])
+  return null
+}
 function App() {
   return (
     <Provider store={store}>
+      <SocketInitializer />
       <ThemeProvider>
       <Router>
         <div className="App">
@@ -102,7 +123,14 @@ function App() {
                 </PublicRoute>
               } 
             />
-            
+            <Route
+            path="/counsellor/login"
+            element={
+              <PublicRoute>
+                <RoleLogin />
+              </PublicRoute>
+            }
+          />
             {/* Generic login route - redirects to student login */}
             <Route path={ROUTES.LOGIN} element={<Navigate to={ROUTES.STUDENT_LOGIN} replace />} />
 
@@ -163,7 +191,9 @@ function App() {
               path={ROUTES.STUDENTS}
               element={
                 <ProtectedRoute>
-                  <StudentManagement />
+                  <RoleBasedRoute allowedRoles={['admin', 'warden', 'hod', 'security', 'counsellor']}>
+                    <StudentManagement />
+                  </RoleBasedRoute>
                 </ProtectedRoute>
               } 
             />
@@ -187,6 +217,14 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route
+              path="/counsellor/dashboard"
+              element={
+                <ProtectedRoute>
+                  <CounsellorDashboard />
+                </ProtectedRoute>
+              }
+            />
             <Route 
               path="/parents"
               element={
@@ -197,6 +235,22 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+
+            <Route path="/attendance" element={
+              <ProtectedRoute>
+                <RoleBasedRoute allowedRoles={['admin', 'warden', 'hod', 'security']}>
+                  <AttendanceManager />
+                </RoleBasedRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/students/:id" element={
+              <ProtectedRoute>
+                <RoleBasedRoute allowedRoles={['admin', 'warden', 'hod', 'counsellor', 'security']}>
+                  <StudentDetail />
+                </RoleBasedRoute>
+              </ProtectedRoute>
+            } />
             <Route 
               path={ROUTES.OUTPASS_REQUESTS}
               element={
@@ -249,6 +303,16 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+            path="/counsellors"
+            element={
+              <ProtectedRoute>
+                <RoleBasedRoute allowedRoles={['admin']}>
+                  <CounsellorManagement />
+                </RoleBasedRoute>
+              </ProtectedRoute>
+            } 
+          />
             <Route 
               path={ROUTES.SETTINGS}
               element={

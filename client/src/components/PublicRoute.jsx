@@ -5,6 +5,7 @@ import { STORAGE_KEYS, USER_ROLES } from '../constants'
  * PublicRoute - Prevents authenticated users from accessing login/register pages
  * If user has valid tokens, redirect them to their role-specific dashboard
  */
+const AUTH_EXEMPT_PATHS = ['/reset-password', '/auth/reset-password', '/forgot-password']
 const PublicRoute = ({ children }) => {
   const location = useLocation()
   
@@ -53,6 +54,8 @@ const PublicRoute = ({ children }) => {
         return <Navigate to="/security/dashboard" replace />
       case USER_ROLES.HOD:
         return <Navigate to="/hod/dashboard" replace />
+      case USER_ROLES.COUNSELLOR:
+  return <Navigate to="/counsellor/dashboard" replace />
       default:
         return <Navigate to="/dashboard" replace />
     }
